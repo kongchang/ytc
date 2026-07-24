@@ -733,33 +733,38 @@ let selectedTeamKey = null; // key ของทีมงานที่กำล
 let selectedTeamLabel = ''; // ป้ายชื่อทีมงานที่กำลังเปิดดูอยู่ (ไว้แสดงหัวข้อ/สร้างใหม่ตอนรีเฟรช)
 let currentTeamPage = 1; // หน้าปัจจุบันของรายการงานในทีมที่เลือก
 
-// สรุปภาระงานคงค้าง แยกตาม "ทีมงาน" (หน่วยงาน + ชุดงานย่อย ถ้ามี) และ "เขต"
-// แสดงเป็นกราฟวงกลม (โดนัท) ย่อของแต่ละทีม คลิกวงไหนจะเปิดรายการงานของทีมนั้นด้านล่างทันที
+// รายชื่อ "ทีมงาน" คงที่ 6 ทีม (หน่วยงาน x เขต) ที่ต้องการแสดงเสมอ เรียงตามลำดับนี้ตายตัว
+// งานโยธา จะรวมทุกชุดปฏิบัติงานย่อย (ชุดซ่อมปะถนน/ชุด LCB/ชุดตัดหญ้า/ชุดไฟฟ้า) เข้าเป็นกราฟเดียวต่อเขต
+const FIXED_TEAMS = [
+    { department: 'งานโยธา', zone: 'เขต 1' },
+    { department: 'งานโยธา', zone: 'เขต 2' },
+    { department: 'งานโยธา', zone: 'เขต 3' },
+    { department: 'ฝ่ายแผน', zone: 'เขต 1' },
+    { department: 'ฝ่ายแผน', zone: 'เขต 2' },
+    { department: 'ฝ่ายแผน', zone: 'เขต 3' }
+];
+
+// สรุปภาระงานคงค้าง แยกเป็น 6 กราฟตายตัวตาม FIXED_TEAMS (งานโยธา เขต 1-3, ฝ่ายแผน เขต 1-3)
+// แสดงเป็นกราฟวงกลม (โดนัท) ของแต่ละทีม คลิกวงไหนจะเปิดรายการงานของทีมนั้นด้านล่างทันที
 // ใช้ข้อมูลทั้งหมดเสมอ (ไม่ผูกกับตัวกรองค้นหา/สถานะด้านบน) เพื่อให้เห็นภาพรวมทุกทีมพร้อมกันในจุดเดียว
+// แสดงครบทั้ง 6 กราฟเสมอ แม้ทีมนั้นจะยังไม่มีคำร้องเลยก็ตาม (จะขึ้นเป็นวงกลม 0)
 function renderTeamBreakdown() {
     const container = document.getElementById('team-breakdown');
     if (!container) return;
     container.innerHTML = '';
 
-    if (complaints.length === 0) {
-        container.innerHTML = '<p class="text-gray-400 text-sm font-medium text-center py-6">ไม่มีข้อมูลสำหรับแสดงผล</p>';
-        teamGroupsCache = {};
-        closeTeamDetail();
-        return;
-    }
-
-    // จัดกลุ่มคำร้องตามหน่วยงาน + ชุดงานย่อย + เขต
+    // ตั้งต้นกลุ่มคงที่ 6 กลุ่มไว้ก่อนเป็น 0 ทั้งหมด
     const groups = {};
-    complaints.forEach(c => {
-        const department = c.department || 'ไม่ระบุหน่วยงาน';
-        const subDepartment = c.subDepartment || '';
-        const zone = c.zone || 'ไม่ระบุเขต';
-        const key = `${department}|${subDepartment}|${zone}`;
+    FIXED_TEAMS.forEach(({ department, zone }) => {
+        const key = `${department}|${zone}`;
+        groups[key] = { department, zone, total: 0, pending: 0, progress: 0, done: 0 };
+    });
 
-        if (!groups[key]) {
-            groups[key] = { department, subDepartment, zone, total: 0, pending: 0, progress: 0, done: 0 };
-        }
+    // นับจำนวนคำร้องของแต่ละหน่วยงาน + เขต (รวมทุกชุดปฏิบัติงานย่อยของงานโยธาเข้าด้วยกัน)
+    complaints.forEach(c => {
+        const key = `${c.department}|${c.zone}`;
         const g = groups[key];
+        if (!g) return; // ข้ามคำร้องที่หน่วยงาน/เขตไม่ตรงกับ 6 ทีมงานหลัก (เช่น ข้อมูลเก่าที่ผิดรูปแบบ)
         g.total++;
         if (c.status === 'ยังไม่เริ่ม') g.pending++;
         else if (c.status === 'กำลังดำเนินการ') g.progress++;
@@ -767,20 +772,12 @@ function renderTeamBreakdown() {
     });
     teamGroupsCache = groups;
 
-    // เรียงทีมที่มีงานค้าง (ยังไม่เริ่ม + กำลังดำเนินการ) เยอะสุดไว้บนสุด เพื่อให้เห็นทีมที่ต้องเร่งก่อน
-    const sortedKeys = Object.keys(groups).sort((keyA, keyB) => {
-        const a = groups[keyA], b = groups[keyB];
-        const aRemain = a.pending + a.progress;
-        const bRemain = b.pending + b.progress;
-        if (bRemain !== aRemain) return bRemain - aRemain;
-        return b.total - a.total;
-    });
+    container.className = "grid grid-cols-2 sm:grid-cols-3 gap-4";
 
-    container.className = "grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4";
-
-    sortedKeys.forEach(key => {
+    FIXED_TEAMS.forEach(({ department, zone }) => {
+        const key = `${department}|${zone}`;
         const g = groups[key];
-        const label = g.subDepartment ? `${g.department} (${g.subDepartment}) - ${g.zone}` : `${g.department} - ${g.zone}`;
+        const label = `${department} - ${zone}`;
 
         const card = document.createElement('div');
         card.className = "flex flex-col items-center gap-2 p-4 rounded-2xl border-2 transition-all cursor-pointer bg-white " +
@@ -809,7 +806,7 @@ function renderTeamBreakdown() {
         if (teamGroupsCache[selectedTeamKey]) {
             renderTeamDetailList();
         } else {
-            closeTeamDetail(); // กลุ่มเดิมไม่มีงานเหลือแล้ว (เช่น ถูกลบ/แก้ไขจนไม่เข้าเงื่อนไขเดิม) ให้ปิดพาเนลไป
+            closeTeamDetail(); // ทีมเดิมไม่อยู่ในกลุ่มคงที่แล้ว ให้ปิดพาเนลไป
         }
     }
 }
@@ -860,7 +857,7 @@ function drawMiniDonut(wrapEl, g) {
         .attr("dy", "0.35em");
 }
 
-// เปิดพาเนลแสดงรายการงานทั้งหมดของทีมงานที่คลิก (department + subDepartment + zone ตรงกันทุกอย่าง)
+// เปิดพาเนลแสดงรายการงานทั้งหมดของทีมงานที่คลิก (department + zone ตรงกัน รวมทุกชุดปฏิบัติงานย่อย)
 function showTeamDetail(key, label) {
     const isNewTeam = key !== selectedTeamKey;
     selectedTeamKey = key;
@@ -892,12 +889,8 @@ function renderTeamDetailList() {
     const listEl = document.getElementById('team-detail-list');
     if (!panel || !titleEl || !listEl || !selectedTeamKey) return;
 
-    const [department, subDepartment, zone] = selectedTeamKey.split('|');
-    const jobs = complaints.filter(c =>
-        (c.department || 'ไม่ระบุหน่วยงาน') === department &&
-        (c.subDepartment || '') === subDepartment &&
-        (c.zone || 'ไม่ระบุเขต') === zone
-    );
+    const [department, zone] = selectedTeamKey.split('|');
+    const jobs = complaints.filter(c => c.department === department && c.zone === zone);
 
     titleEl.textContent = `${selectedTeamLabel} (${jobs.length} งาน)`;
 
