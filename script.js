@@ -732,6 +732,15 @@ let teamGroupsCache = {};
 let selectedTeamKey = null; // key ของทีมงานที่กำลังเปิดดูรายการงานอยู่ (ถ้ามี)
 let selectedTeamLabel = ''; // ป้ายชื่อทีมงานที่กำลังเปิดดูอยู่ (ไว้แสดงหัวข้อ/สร้างใหม่ตอนรีเฟรช)
 let currentTeamPage = 1; // หน้าปัจจุบันของรายการงานในทีมที่เลือก
+let selectedSubDeptFilter = 'ทั้งหมด'; // ตัวกรองชุดปฏิบัติงานย่อย (ใช้เฉพาะตอนเปิดดูทีมงานโยธา)
+
+// ชุดปฏิบัติงานย่อยของงานโยธา (ต้องตรงกับตัวเลือกในฟอร์มบันทึกคำร้อง f-subDepartment ทุกประการ)
+const SUB_DEPARTMENTS = [
+    { value: 'ชุดซ่อมปะถนน', label: 'ชุดซ่อมปะถนน' },
+    { value: 'ชุด LCB', label: 'ชุดซ่อม LCB' },
+    { value: 'ชุดตัดหญ้า', label: 'ชุดตัดหญ้า' },
+    { value: 'ชุดไฟฟ้า', label: 'ชุดไฟฟ้า' }
+];
 
 // รายชื่อ "ทีมงาน" คงที่ 6 ทีม (หน่วยงาน x เขต) ที่ต้องการแสดงเสมอ เรียงตามลำดับนี้ตายตัว
 // งานโยธา จะรวมทุกชุดปฏิบัติงานย่อย (ชุดซ่อมปะถนน/ชุด LCB/ชุดตัดหญ้า/ชุดไฟฟ้า) เข้าเป็นกราฟเดียวต่อเขต
@@ -862,7 +871,10 @@ function showTeamDetail(key, label) {
     const isNewTeam = key !== selectedTeamKey;
     selectedTeamKey = key;
     selectedTeamLabel = label;
-    if (isNewTeam) currentTeamPage = 1; // เปิดทีมใหม่ ให้เริ่มจากหน้าแรกเสมอ
+    if (isNewTeam) {
+        currentTeamPage = 1; // เปิดทีมใหม่ ให้เริ่มจากหน้าแรกเสมอ
+        selectedSubDeptFilter = 'ทั้งหมด'; // เปิดทีมใหม่ ล้างตัวกรองชุดปฏิบัติงานเดิมเสมอ
+    }
 
     renderTeamDetailList();
     renderTeamBreakdown(); // รีเฟรชกริดเพื่ออัปเดตกรอบไฮไลต์การ์ดที่เลือก
@@ -887,12 +899,37 @@ function renderTeamDetailList() {
     const panel = document.getElementById('team-detail-panel');
     const titleEl = document.getElementById('team-detail-title-text');
     const listEl = document.getElementById('team-detail-list');
+    const subDeptContainer = document.getElementById('team-subdept-filter-container');
+    const subDeptSelect = document.getElementById('team-subdept-filter');
     if (!panel || !titleEl || !listEl || !selectedTeamKey) return;
 
     const [department, zone] = selectedTeamKey.split('|');
-    const jobs = complaints.filter(c => c.department === department && c.zone === zone);
+    const teamJobs = complaints.filter(c => c.department === department && c.zone === zone);
+    const isGovyotha = department === 'งานโยธา';
 
-    titleEl.textContent = `${selectedTeamLabel} (${jobs.length} งาน)`;
+    // งานโยธา เท่านั้นที่มีชุดปฏิบัติงานย่อยให้เลือกกรองเพิ่ม (แสดงจำนวนงานกำกับแต่ละชุดไว้ในตัวเลือกด้วย)
+    if (isGovyotha && subDeptContainer && subDeptSelect) {
+        subDeptContainer.classList.remove('hidden');
+        const subCounts = {};
+        SUB_DEPARTMENTS.forEach(sd => { subCounts[sd.value] = 0; });
+        teamJobs.forEach(c => { if (subCounts[c.subDepartment] !== undefined) subCounts[c.subDepartment]++; });
+
+        subDeptSelect.innerHTML = `
+            <option value="ทั้งหมด">ทุกชุดปฏิบัติงาน (${teamJobs.length})</option>
+            ${SUB_DEPARTMENTS.map(sd => `<option value="${escapeHtml(sd.value)}">${escapeHtml(sd.label)} (${subCounts[sd.value]})</option>`).join('')}
+        `;
+        subDeptSelect.value = selectedSubDeptFilter;
+    } else if (subDeptContainer) {
+        subDeptContainer.classList.add('hidden'); // ฝ่ายแผนไม่มีชุดปฏิบัติงานย่อย ไม่ต้องแสดงตัวกรอง
+    }
+
+    const jobs = (isGovyotha && selectedSubDeptFilter !== 'ทั้งหมด')
+        ? teamJobs.filter(c => c.subDepartment === selectedSubDeptFilter)
+        : teamJobs;
+
+    const subDeptLabel = SUB_DEPARTMENTS.find(sd => sd.value === selectedSubDeptFilter)?.label;
+    const titleSuffix = (isGovyotha && selectedSubDeptFilter !== 'ทั้งหมด' && subDeptLabel) ? ` - ${subDeptLabel}` : '';
+    titleEl.textContent = `${selectedTeamLabel}${titleSuffix} (${jobs.length} งาน)`;
 
     if (jobs.length === 0) {
         listEl.className = "";
@@ -978,6 +1015,7 @@ function closeTeamDetail() {
     selectedTeamKey = null;
     selectedTeamLabel = '';
     currentTeamPage = 1;
+    selectedSubDeptFilter = 'ทั้งหมด';
     const panel = document.getElementById('team-detail-panel');
     if (panel) panel.classList.add('hidden');
     // เอากรอบไฮไลต์การ์ดที่เคยเลือกออก (ถ้ายังอยู่ในหน้านี้)
@@ -992,6 +1030,16 @@ function closeTeamDetail() {
 // Setup Form Event Listeners
 function setupEventListeners() {
     document.getElementById('search-input').addEventListener('input', () => { currentPage = 1; renderDashboard(); });
+
+    // ตัวกรองชุดปฏิบัติงานย่อย ในพาเนลรายละเอียดทีมงาน (ใช้เฉพาะตอนเปิดดูทีมงานโยธา)
+    const teamSubDeptFilterEl = document.getElementById('team-subdept-filter');
+    if (teamSubDeptFilterEl) {
+        teamSubDeptFilterEl.addEventListener('change', (e) => {
+            selectedSubDeptFilter = e.target.value;
+            currentTeamPage = 1;
+            renderTeamDetailList();
+        });
+    }
     
     // Time filter handling (PILLS)
     const timeBtns = document.querySelectorAll('.time-btn');
