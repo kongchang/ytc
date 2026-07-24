@@ -12,6 +12,9 @@ let actionCallback = null; // For confirm modal
 let currentPage = 1; // สำหรับแบ่งหน้ารายการคำร้อง
 const ITEMS_PER_PAGE = 9; // จำนวนการ์ดต่อหน้า
 
+// Firestore จำกัดขนาดเอกสารไว้ที่ 1MB ต่อรายการ — ตั้งงบไว้ที่ 900KB เผื่อระยะปลอดภัย (ใช้ทั้งตอนแสดงมิเตอร์และตอนบันทึกจริง)
+const FIRESTORE_DOC_SIZE_BUDGET = 900 * 1024;
+
 // เก็บรูปภาพที่แนบในฟอร์ม (รองรับหลายรูปต่อหัวข้อ) ระหว่างกรอกฟอร์ม
 let currentImages = { form: [], before: [], after: [] };
 
@@ -1153,7 +1156,7 @@ function setupMultiImageUpload(inputId, type, gridId) {
                 return Promise.resolve(null);
             }
             // ย่อ/บีบอัดรูปก่อนเก็บ เพราะ Firestore จำกัดขนาดเอกสารไว้ที่ 1MB ต่อรายการ
-            return compressImage(file, 900, 0.65).catch((err) => {
+            return compressImage(file, 800, 0.55).catch((err) => {
                 console.error('Compress image error:', err);
                 showToast(`ไม่สามารถประมวลผลรูปภาพ "${file.name}" ได้`, 'error');
                 return null;
@@ -1178,6 +1181,43 @@ function renderPreviewGrid(type, gridId) {
         </div>
     `).join('');
     lucide.createIcons({ root: grid });
+    updateImageSizeIndicator();
+}
+
+// อัปเดตมิเตอร์แสดงขนาดข้อมูลโดยประมาณ (รูปภาพ+ข้อความ) เทียบกับงบ 900KB ของ Firestore แบบเรียลไทม์
+// ให้ผู้ใช้เห็นก่อนกดบันทึกว่าใกล้เต็มขีดจำกัดหรือยัง แทนที่จะรู้ตัวตอนกดบันทึกแล้วเจอ error เท่านั้น
+function updateImageSizeIndicator() {
+    const indicator = document.getElementById('image-size-indicator');
+    const bar = document.getElementById('image-size-bar');
+    const label = document.getElementById('image-size-label');
+    if (!indicator || !bar || !label) return;
+
+    const totalImages = currentImages.form.length + currentImages.before.length + currentImages.after.length;
+    if (totalImages === 0) {
+        indicator.classList.add('hidden');
+        return;
+    }
+    indicator.classList.remove('hidden');
+
+    const approxItem = buildItemFromForm(document.getElementById('entry-id').value, true);
+    const approxSize = new Blob([JSON.stringify(approxItem)]).size;
+    const percent = Math.min(100, (approxSize / FIRESTORE_DOC_SIZE_BUDGET) * 100);
+    const kb = Math.round(approxSize / 1024);
+    const budgetKb = Math.round(FIRESTORE_DOC_SIZE_BUDGET / 1024);
+
+    label.textContent = `ขนาดข้อมูลรูปภาพโดยประมาณ: ${kb} KB / ${budgetKb} KB`;
+    bar.style.width = `${percent}%`;
+
+    if (percent >= 100) {
+        bar.className = 'h-full rounded-full bg-red-500 transition-all';
+        label.className = 'text-xs font-bold text-red-600';
+    } else if (percent >= 80) {
+        bar.className = 'h-full rounded-full bg-yellow-500 transition-all';
+        label.className = 'text-xs font-bold text-yellow-600';
+    } else {
+        bar.className = 'h-full rounded-full bg-emerald-500 transition-all';
+        label.className = 'text-xs font-semibold text-gray-500';
+    }
 }
 
 // ย่อขนาดรูปภาพและแปลงเป็น JPEG คุณภาพที่กำหนด เพื่อให้ไฟล์เล็กพอที่จะเก็บใน Firestore ได้
@@ -1274,13 +1314,9 @@ function populateForm(item) {
     renderPreviewGrid('after', 'preview-after-grid');
 }
 
-function saveForm(e) {
-    e.preventDefault();
-    
-    const id = document.getElementById('entry-id').value;
-    const isNew = !id;
-
-    const newItem = {
+// อ่านค่าทั้งหมดจากฟอร์มปัจจุบันมาประกอบเป็น object คำร้อง — ใช้ร่วมกันทั้งตอนบันทึกจริงและตอนคำนวณมิเตอร์ขนาดข้อมูล
+function buildItemFromForm(id, isNew) {
+    return {
         id: isNew ? Date.now() : parseInt(id),
         title: document.getElementById('f-title').value,
         receiveNo: document.getElementById('f-receiveNo').value,
@@ -1299,11 +1335,21 @@ function saveForm(e) {
         beforeImgs: currentImages.before,
         afterImgs: currentImages.after,
     };
+}
+
+function saveForm(e) {
+    e.preventDefault();
+
+    const id = document.getElementById('entry-id').value;
+    const isNew = !id;
+    const newItem = buildItemFromForm(id, isNew);
 
     // ตรวจสอบขนาดข้อมูลคร่าวๆ ก่อนบันทึก (Firestore จำกัดไว้ที่ 1MB ต่อรายการ)
     const approxSize = new Blob([JSON.stringify(newItem)]).size;
-    if (approxSize > 900 * 1024) {
-        showToast('ข้อมูล (รวมรูปภาพ) มีขนาดใหญ่เกินไป กรุณาใช้รูปภาพที่เล็กลง', 'error');
+    if (approxSize > FIRESTORE_DOC_SIZE_BUDGET) {
+        const kb = Math.round(approxSize / 1024);
+        const budgetKb = Math.round(FIRESTORE_DOC_SIZE_BUDGET / 1024);
+        showToast(`ข้อมูล (รวมรูปภาพ) มีขนาดใหญ่เกินไป (~${kb} KB จากขีดจำกัด ${budgetKb} KB) กรุณาลบรูปภาพบางส่วนออก หรือใช้รูปภาพที่เล็กลง`, 'error');
         return;
     }
 
