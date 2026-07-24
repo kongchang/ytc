@@ -217,9 +217,14 @@
                     <p class="text-[10px] text-emerald-200 font-light mt-1">ระบบติดตามคำร้อง</p>
                 </div>
             </div>
-            <button onclick="logout()" class="text-red-200 hover:text-white p-2 bg-red-600/20 rounded-lg transition-colors focus:outline-none">
-                <i data-lucide="log-out" class="w-5 h-5"></i>
-            </button>
+            <div class="flex items-center gap-2">
+                <button onclick="navigate('team')" class="text-emerald-200 hover:text-white p-2 bg-white/10 rounded-lg transition-colors focus:outline-none">
+                    <i data-lucide="users" class="w-5 h-5"></i>
+                </button>
+                <button onclick="logout()" class="text-red-200 hover:text-white p-2 bg-red-600/20 rounded-lg transition-colors focus:outline-none">
+                    <i data-lucide="log-out" class="w-5 h-5"></i>
+                </button>
+            </div>
         </header>
 
         <!-- Desktop Sidebar -->
@@ -237,6 +242,9 @@
                 </button>
                 <button onclick="openForm()" id="nav-form" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all hover:bg-white/5 text-emerald-100 hover:text-white">
                     <i data-lucide="plus-circle" class="w-4 h-4"></i> เพิ่มคำร้องใหม่
+                </button>
+                <button onclick="navigate('team')" id="nav-team" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all hover:bg-white/5 text-emerald-100 hover:text-white">
+                    <i data-lucide="users" class="w-4 h-4"></i> ภาระงานทีมงาน
                 </button>
             </nav>
             <div class="p-4 border-t border-white/10">
@@ -567,6 +575,50 @@
                             </button>
                         </div>
                     </form>
+                </div>
+            </div>
+
+            <!-- Team Workload View -->
+            <div id="view-team" class="hidden max-w-5xl mx-auto pb-20">
+                <div class="flex items-center justify-between mb-6 fade-in">
+                    <div>
+                        <h2 class="text-2xl md:text-3xl font-extrabold text-brand-dark tracking-tight flex items-center gap-2">
+                            <i data-lucide="users" class="w-7 h-7"></i> ภาระงานคงค้างแยกตามทีมงาน
+                        </h2>
+                        <p class="text-sm text-emerald-800 mt-1">สรุปจำนวนคำร้องของแต่ละหน่วยงาน/ชุดงาน/เขต แยกตามสถานะการดำเนินงาน</p>
+                    </div>
+                    <button onclick="navigate('dashboard')" class="hidden md:flex items-center gap-1 px-4 py-2 bg-white hover:bg-gray-50 text-gray-700 rounded-xl text-xs font-bold transition-all border border-gray-200 shadow-sm">
+                        <i data-lucide="arrow-left" class="w-4 h-4"></i> กลับหน้าแรก
+                    </button>
+                </div>
+
+                <div class="bg-white p-5 md:p-6 rounded-3xl shadow-sm border border-emerald-100 fade-in relative" style="animation-delay: 0.1s;">
+                    <button onclick="navigate('dashboard')" class="md:hidden absolute top-6 right-6 p-2 bg-gray-100 rounded-full text-gray-600">
+                        <i data-lucide="x" class="w-5 h-5"></i>
+                    </button>
+                    <p class="text-xs text-gray-400 mb-4">คลิกที่วงกลมของทีมงานเพื่อดูรายการงานของทีมนั้น</p>
+                    <div id="team-breakdown" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+                        <!-- Donut cards injected by JS -->
+                    </div>
+                </div>
+
+                <!-- Job list of the currently selected team -->
+                <div id="team-detail-panel" class="hidden bg-white p-5 md:p-6 rounded-3xl shadow-sm border border-emerald-100 fade-in mt-6">
+                    <div class="flex items-center justify-between gap-3 mb-4">
+                        <h3 class="font-bold text-gray-800 flex items-center gap-2 min-w-0">
+                            <i data-lucide="list-checks" class="w-5 h-5 text-brand flex-shrink-0"></i>
+                            <span id="team-detail-title-text" class="truncate"></span>
+                        </h3>
+                        <button onclick="closeTeamDetail()" class="p-2 bg-gray-100 hover:bg-gray-200 rounded-full text-gray-600 flex-shrink-0">
+                            <i data-lucide="x" class="w-4 h-4"></i>
+                        </button>
+                    </div>
+                    <div id="team-detail-list" class="flex flex-col gap-2">
+                        <!-- Job rows injected by JS -->
+                    </div>
+                    <div id="team-pagination-container" class="mt-8">
+                        <!-- Page buttons injected by JS -->
+                    </div>
                 </div>
             </div>
         </main>

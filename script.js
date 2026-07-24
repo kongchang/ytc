@@ -107,6 +107,7 @@ function initFirestoreSync() {
             // ไม่ใช่สัญญาณให้ใส่ข้อมูลตัวอย่างกลับเข้ามาอีกต่อไป
             complaints = snapshot.docs.map(doc => doc.data());
             renderDashboard();
+            renderTeamBreakdown(); // อัปเดตสรุปภาระงานทีมงานเสมอ ไม่ว่าจะเปิดหน้านั้นอยู่หรือไม่
         }, (err) => {
             console.error('Firestore sync error:', err);
             showToast('เชื่อมต่อฐานข้อมูลไม่สำเร็จ กรุณาตรวจสอบการตั้งค่า Firebase ใน firebase-config.js', 'error');
@@ -224,18 +225,27 @@ function logout() {
 function navigate(viewName) {
     document.getElementById('view-dashboard').classList.add('hidden');
     document.getElementById('view-form').classList.add('hidden');
+    document.getElementById('view-team').classList.add('hidden');
     
     // reset nav styles
-    document.getElementById('nav-dashboard').className = "w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all hover:bg-white/5 text-emerald-100 hover:text-white";
-    document.getElementById('nav-form').className = "w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all hover:bg-white/5 text-emerald-100 hover:text-white";
+    const inactiveNav = "w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all hover:bg-white/5 text-emerald-100 hover:text-white";
+    const activeNav = "w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all bg-emerald-900/60 shadow-inner";
+    document.getElementById('nav-dashboard').className = inactiveNav;
+    document.getElementById('nav-form').className = inactiveNav;
+    document.getElementById('nav-team').className = inactiveNav;
 
     if (viewName === 'dashboard') {
         document.getElementById('view-dashboard').classList.remove('hidden');
-        document.getElementById('nav-dashboard').className = "w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all bg-emerald-900/60 shadow-inner";
+        document.getElementById('nav-dashboard').className = activeNav;
         renderDashboard();
     } else if (viewName === 'form') {
         document.getElementById('view-form').classList.remove('hidden');
-        document.getElementById('nav-form').className = "w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all bg-emerald-900/60 shadow-inner";
+        document.getElementById('nav-form').className = activeNav;
+        window.scrollTo(0,0);
+    } else if (viewName === 'team') {
+        document.getElementById('view-team').classList.remove('hidden');
+        document.getElementById('nav-team').className = activeNav;
+        renderTeamBreakdown();
         window.scrollTo(0,0);
     }
 }
@@ -532,9 +542,9 @@ function renderDashboard() {
     renderPagination(filtered.length, totalPages);
 }
 
-// สร้างแถบเลขหน้า (Pagination Controls)
-function renderPagination(totalItems, totalPages) {
-    const pagContainer = document.getElementById('pagination-container');
+// สร้างแถบเลขหน้า (Pagination Controls) — ฟังก์ชันกลางใช้ซ้ำได้ทั้งหน้า Dashboard และรายการงานของทีมงาน
+function renderPaginationControls(containerId, totalItems, currentPageNum, totalPages, onPageChange) {
+    const pagContainer = document.getElementById(containerId);
     if (!pagContainer) return;
     pagContainer.innerHTML = '';
 
@@ -550,16 +560,16 @@ function renderPagination(totalItems, totalPages) {
 
     // ปุ่มก่อนหน้า
     const prevBtn = document.createElement('button');
-    prevBtn.className = currentPage === 1 ? disabledBtn : inactiveBtn;
+    prevBtn.className = currentPageNum === 1 ? disabledBtn : inactiveBtn;
     prevBtn.innerHTML = `<i data-lucide="chevron-left" class="w-4 h-4"></i>`;
-    if (currentPage !== 1) prevBtn.onclick = () => changePage(currentPage - 1);
+    if (currentPageNum !== 1) prevBtn.onclick = () => onPageChange(currentPageNum - 1);
     wrapper.appendChild(prevBtn);
 
     // คำนวณช่วงเลขหน้าที่จะแสดง (แสดงหน้าแรก, หน้าสุดท้าย, และหน้าใกล้เคียงหน้าปัจจุบัน)
     const pagesToShow = new Set();
     pagesToShow.add(1);
     pagesToShow.add(totalPages);
-    for (let p = currentPage - 1; p <= currentPage + 1; p++) {
+    for (let p = currentPageNum - 1; p <= currentPageNum + 1; p++) {
         if (p >= 1 && p <= totalPages) pagesToShow.add(p);
     }
     const sortedPages = Array.from(pagesToShow).sort((a, b) => a - b);
@@ -573,22 +583,27 @@ function renderPagination(totalItems, totalPages) {
             wrapper.appendChild(dots);
         }
         const pageBtn = document.createElement('button');
-        pageBtn.className = p === currentPage ? activeBtn : inactiveBtn;
+        pageBtn.className = p === currentPageNum ? activeBtn : inactiveBtn;
         pageBtn.textContent = p;
-        pageBtn.onclick = () => changePage(p);
+        pageBtn.onclick = () => onPageChange(p);
         wrapper.appendChild(pageBtn);
         lastPage = p;
     });
 
     // ปุ่มถัดไป
     const nextBtn = document.createElement('button');
-    nextBtn.className = currentPage === totalPages ? disabledBtn : inactiveBtn;
+    nextBtn.className = currentPageNum === totalPages ? disabledBtn : inactiveBtn;
     nextBtn.innerHTML = `<i data-lucide="chevron-right" class="w-4 h-4"></i>`;
-    if (currentPage !== totalPages) nextBtn.onclick = () => changePage(currentPage + 1);
+    if (currentPageNum !== totalPages) nextBtn.onclick = () => onPageChange(currentPageNum + 1);
     wrapper.appendChild(nextBtn);
 
     pagContainer.appendChild(wrapper);
     lucide.createIcons({ root: pagContainer });
+}
+
+// Pagination ของหน้า Dashboard (ห่อฟังก์ชันกลางด้านบน)
+function renderPagination(totalItems, totalPages) {
+    renderPaginationControls('pagination-container', totalItems, currentPage, totalPages, changePage);
 }
 
 // เปลี่ยนหน้าที่กำลังแสดง
@@ -710,6 +725,275 @@ function renderChart() {
         .style("font-weight", "900")
         .style("font-family", "'Prompt', sans-serif")
         .attr("dy", "0.7em");
+}
+
+// เก็บกลุ่มทีมงานล่าสุดไว้ใช้ตอนคลิกดูรายการงาน (คำนวณใหม่ทุกครั้งที่ renderTeamBreakdown ทำงาน)
+let teamGroupsCache = {};
+let selectedTeamKey = null; // key ของทีมงานที่กำลังเปิดดูรายการงานอยู่ (ถ้ามี)
+let selectedTeamLabel = ''; // ป้ายชื่อทีมงานที่กำลังเปิดดูอยู่ (ไว้แสดงหัวข้อ/สร้างใหม่ตอนรีเฟรช)
+let currentTeamPage = 1; // หน้าปัจจุบันของรายการงานในทีมที่เลือก
+
+// สรุปภาระงานคงค้าง แยกตาม "ทีมงาน" (หน่วยงาน + ชุดงานย่อย ถ้ามี) และ "เขต"
+// แสดงเป็นกราฟวงกลม (โดนัท) ย่อของแต่ละทีม คลิกวงไหนจะเปิดรายการงานของทีมนั้นด้านล่างทันที
+// ใช้ข้อมูลทั้งหมดเสมอ (ไม่ผูกกับตัวกรองค้นหา/สถานะด้านบน) เพื่อให้เห็นภาพรวมทุกทีมพร้อมกันในจุดเดียว
+function renderTeamBreakdown() {
+    const container = document.getElementById('team-breakdown');
+    if (!container) return;
+    container.innerHTML = '';
+
+    if (complaints.length === 0) {
+        container.innerHTML = '<p class="text-gray-400 text-sm font-medium text-center py-6">ไม่มีข้อมูลสำหรับแสดงผล</p>';
+        teamGroupsCache = {};
+        closeTeamDetail();
+        return;
+    }
+
+    // จัดกลุ่มคำร้องตามหน่วยงาน + ชุดงานย่อย + เขต
+    const groups = {};
+    complaints.forEach(c => {
+        const department = c.department || 'ไม่ระบุหน่วยงาน';
+        const subDepartment = c.subDepartment || '';
+        const zone = c.zone || 'ไม่ระบุเขต';
+        const key = `${department}|${subDepartment}|${zone}`;
+
+        if (!groups[key]) {
+            groups[key] = { department, subDepartment, zone, total: 0, pending: 0, progress: 0, done: 0 };
+        }
+        const g = groups[key];
+        g.total++;
+        if (c.status === 'ยังไม่เริ่ม') g.pending++;
+        else if (c.status === 'กำลังดำเนินการ') g.progress++;
+        else if (c.status === 'เสร็จสมบูรณ์แล้ว') g.done++;
+    });
+    teamGroupsCache = groups;
+
+    // เรียงทีมที่มีงานค้าง (ยังไม่เริ่ม + กำลังดำเนินการ) เยอะสุดไว้บนสุด เพื่อให้เห็นทีมที่ต้องเร่งก่อน
+    const sortedKeys = Object.keys(groups).sort((keyA, keyB) => {
+        const a = groups[keyA], b = groups[keyB];
+        const aRemain = a.pending + a.progress;
+        const bRemain = b.pending + b.progress;
+        if (bRemain !== aRemain) return bRemain - aRemain;
+        return b.total - a.total;
+    });
+
+    container.className = "grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4";
+
+    sortedKeys.forEach(key => {
+        const g = groups[key];
+        const label = g.subDepartment ? `${g.department} (${g.subDepartment}) - ${g.zone}` : `${g.department} - ${g.zone}`;
+
+        const card = document.createElement('div');
+        card.className = "flex flex-col items-center gap-2 p-4 rounded-2xl border-2 transition-all cursor-pointer bg-white " +
+            (key === selectedTeamKey ? "border-brand shadow-md ring-2 ring-brand/20" : "border-gray-100 hover:border-brand/40 hover:shadow-sm");
+        card.onclick = () => showTeamDetail(key, label);
+
+        const donutWrap = document.createElement('div');
+        donutWrap.className = "relative w-24 h-24 flex-shrink-0";
+        card.appendChild(donutWrap);
+
+        drawMiniDonut(donutWrap, g);
+
+        const textWrap = document.createElement('div');
+        textWrap.className = "text-center";
+        textWrap.innerHTML = `
+            <p class="text-xs font-bold text-gray-700 leading-snug">${escapeHtml(label)}</p>
+            <p class="text-[11px] font-semibold text-gray-400 mt-0.5">รวม ${g.total} งาน</p>
+        `;
+        card.appendChild(textWrap);
+
+        container.appendChild(card);
+    });
+
+    // ถ้ากำลังเปิดดูรายการงานของทีมใดอยู่ ให้รีเฟรชรายการนั้นตามข้อมูลล่าสุดด้วย (เผื่อมีการเพิ่ม/แก้ไข/ลบระหว่างเปิดดูอยู่)
+    if (selectedTeamKey) {
+        if (teamGroupsCache[selectedTeamKey]) {
+            renderTeamDetailList();
+        } else {
+            closeTeamDetail(); // กลุ่มเดิมไม่มีงานเหลือแล้ว (เช่น ถูกลบ/แก้ไขจนไม่เข้าเงื่อนไขเดิม) ให้ปิดพาเนลไป
+        }
+    }
+}
+
+// วาดกราฟวงกลม (โดนัท) ขนาดเล็กสำหรับการ์ดสรุปทีมงานแต่ละทีม ด้วย D3 (โทนสีเดียวกับกราฟหลักของ Dashboard)
+function drawMiniDonut(wrapEl, g) {
+    const counts = [
+        { value: g.pending, color: '#ef4444' },
+        { value: g.progress, color: '#eab308' },
+        { value: g.done, color: '#10b981' }
+    ];
+    const activeData = counts.filter(d => d.value > 0);
+
+    const width = 96, height = 96, margin = 3;
+    const radius = Math.min(width, height) / 2 - margin;
+
+    const svg = d3.select(wrapEl)
+        .append("svg")
+        .attr("width", "100%")
+        .attr("height", "100%")
+        .attr("viewBox", `0 0 ${width} ${height}`)
+        .attr("preserveAspectRatio", "xMidYMid meet")
+        .append("g")
+        .attr("transform", `translate(${width / 2},${height / 2})`);
+
+    const pie = d3.pie().value(d => d.value).sort(null);
+    const data_ready = pie(activeData);
+
+    const arcGenerator = d3.arc()
+        .innerRadius(radius * 0.55)
+        .outerRadius(radius);
+
+    svg.selectAll('path')
+        .data(data_ready)
+        .join('path')
+        .attr('d', arcGenerator)
+        .attr('fill', d => d.data.color)
+        .attr("stroke", "#ffffff")
+        .style("stroke-width", "2px");
+
+    svg.append("text")
+        .attr("text-anchor", "middle")
+        .text(g.total)
+        .style("font-size", "20px")
+        .style("fill", "#1f2937")
+        .style("font-weight", "900")
+        .style("font-family", "'Prompt', sans-serif")
+        .attr("dy", "0.35em");
+}
+
+// เปิดพาเนลแสดงรายการงานทั้งหมดของทีมงานที่คลิก (department + subDepartment + zone ตรงกันทุกอย่าง)
+function showTeamDetail(key, label) {
+    const isNewTeam = key !== selectedTeamKey;
+    selectedTeamKey = key;
+    selectedTeamLabel = label;
+    if (isNewTeam) currentTeamPage = 1; // เปิดทีมใหม่ ให้เริ่มจากหน้าแรกเสมอ
+
+    renderTeamDetailList();
+    renderTeamBreakdown(); // รีเฟรชกริดเพื่ออัปเดตกรอบไฮไลต์การ์ดที่เลือก
+
+    const panel = document.getElementById('team-detail-panel');
+    if (panel) {
+        panel.classList.remove('hidden');
+        panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+}
+
+// เปลี่ยนหน้าของรายการงานในทีมที่กำลังเปิดดูอยู่
+function changeTeamPage(page) {
+    currentTeamPage = page;
+    renderTeamDetailList();
+    const listContainer = document.getElementById('team-detail-list');
+    if (listContainer) listContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// วาดรายการคำร้องของทีมงานที่เลือก ลงในพาเนลรายละเอียด — ใช้การ์ดสไตล์เดียวกับหน้า Dashboard พร้อมแบ่งหน้า
+function renderTeamDetailList() {
+    const panel = document.getElementById('team-detail-panel');
+    const titleEl = document.getElementById('team-detail-title-text');
+    const listEl = document.getElementById('team-detail-list');
+    if (!panel || !titleEl || !listEl || !selectedTeamKey) return;
+
+    const [department, subDepartment, zone] = selectedTeamKey.split('|');
+    const jobs = complaints.filter(c =>
+        (c.department || 'ไม่ระบุหน่วยงาน') === department &&
+        (c.subDepartment || '') === subDepartment &&
+        (c.zone || 'ไม่ระบุเขต') === zone
+    );
+
+    titleEl.textContent = `${selectedTeamLabel} (${jobs.length} งาน)`;
+
+    if (jobs.length === 0) {
+        listEl.className = "";
+        listEl.innerHTML = `
+            <div class="flex flex-col items-center justify-center p-10 bg-white rounded-2xl border border-dashed border-gray-300 text-gray-400">
+                <i data-lucide="folder-search" class="w-12 h-12 mb-3"></i>
+                <p class="font-semibold">ไม่มีงานคงเหลือของทีมนี้แล้ว</p>
+            </div>`;
+        lucide.createIcons({ root: listEl });
+        renderPaginationControls('team-pagination-container', 0, 1, 1, changeTeamPage);
+        return;
+    }
+
+    // เรียงงานที่ยังไม่เสร็จไว้ก่อน (ยังไม่เริ่ม > กำลังดำเนินการ > เสร็จสมบูรณ์) แล้วเรียงวันที่ใหม่สุดก่อนในกลุ่มเดียวกัน
+    const statusOrder = { 'ยังไม่เริ่ม': 0, 'กำลังดำเนินการ': 1, 'เสร็จสมบูรณ์แล้ว': 2 };
+    jobs.sort((a, b) => {
+        const orderDiff = (statusOrder[a.status] ?? 3) - (statusOrder[b.status] ?? 3);
+        if (orderDiff !== 0) return orderDiff;
+        return new Date(b.startDate) - new Date(a.startDate);
+    });
+
+    // แบ่งหน้า (Pagination) เหมือนหน้า Dashboard
+    const totalPages = Math.max(1, Math.ceil(jobs.length / ITEMS_PER_PAGE));
+    if (currentTeamPage > totalPages) currentTeamPage = totalPages;
+    if (currentTeamPage < 1) currentTeamPage = 1;
+    const startIdx = (currentTeamPage - 1) * ITEMS_PER_PAGE;
+    const pageJobs = jobs.slice(startIdx, startIdx + ITEMS_PER_PAGE);
+
+    listEl.className = "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6";
+    listEl.innerHTML = '';
+
+    pageJobs.forEach(c => {
+        const st = STATUS_CONFIG[c.status];
+        const dObj = new Date(c.startDate);
+        const dStr = !isNaN(dObj) ? dObj.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' }) : c.startDate;
+
+        const cAfterArr = normalizeImgArray(c.afterImgs, c.afterImg);
+        const cBeforeArr = normalizeImgArray(c.beforeImgs, c.beforeImg);
+        const displayImg = cAfterArr[0] ? cAfterArr[0] : (cBeforeArr[0] ? cBeforeArr[0] : 'https://placehold.co/600x400/eeeeee/999999?text=ไม่มีรูปภาพ');
+
+        const card = document.createElement('div');
+        card.className = "bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-all cursor-pointer flex flex-col group relative overflow-hidden";
+        card.onclick = () => viewDetail(c.id);
+
+        let stripColor = c.status === 'เสร็จสมบูรณ์แล้ว' ? 'bg-emerald-500' : (c.status === 'กำลังดำเนินการ' ? 'bg-yellow-500' : 'bg-red-500');
+
+        card.innerHTML = `
+            <div class="absolute top-0 left-0 right-0 h-1 ${stripColor} z-10"></div>
+
+            <!-- Cover Image -->
+            <div class="w-full h-36 bg-gray-100 overflow-hidden relative">
+                <img src="${escapeHtml(safeImageSrc(displayImg))}" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" alt="รูปภาพประกอบ" onerror="this.src='https://placehold.co/600x400/eeeeee/999999?text=ไม่มีรูปภาพ'">
+                <div class="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent"></div>
+                <div class="absolute bottom-3 left-3 right-3 flex justify-between items-end">
+                    <span class="px-2.5 py-1 rounded-md text-[10px] font-bold ${st.bg} ${st.color} border ${st.border} shadow-sm backdrop-blur-md bg-opacity-90">${escapeHtml(c.status)}</span>
+                    <span class="text-[10px] text-white font-medium drop-shadow-md bg-black/30 px-2 py-0.5 rounded-md backdrop-blur-sm">${escapeHtml(dStr)}</span>
+                </div>
+            </div>
+
+            <!-- Card Body -->
+            <div class="p-4 flex flex-col flex-1">
+                <h3 class="font-bold text-gray-800 mb-2 leading-snug line-clamp-2 group-hover:text-brand transition-colors">${escapeHtml(c.title)}</h3>
+                <div class="space-y-1 mb-4 flex-1">
+                    <p class="text-xs text-gray-500 flex items-center gap-1.5"><i data-lucide="map-pin" class="w-3.5 h-3.5 text-gray-400"></i> ${escapeHtml(c.zone)}</p>
+                    <p class="text-xs text-gray-500 flex items-center gap-1.5"><i data-lucide="user" class="w-3.5 h-3.5 text-gray-400"></i> ผู้ร้อง: ${escapeHtml(c.requester)}</p>
+                    <p class="text-[10px] text-gray-400 flex items-center gap-1.5 mt-1"><i data-lucide="hard-hat" class="w-3.5 h-3.5 text-gray-400"></i> รับผิดชอบ: ${escapeHtml(c.department)}</p>
+                </div>
+                <div class="pt-3 border-t border-gray-50 flex items-center justify-between mt-auto">
+                    <p class="text-[10px] font-semibold text-gray-400">ID: ${escapeHtml(c.receiveNo || c.id)}</p>
+                    <button class="text-brand text-xs font-bold hover:underline flex items-center gap-1">ดูรายละเอียด <i data-lucide="chevron-right" class="w-3 h-3"></i></button>
+                </div>
+            </div>
+        `;
+        listEl.appendChild(card);
+    });
+
+    lucide.createIcons({ root: listEl });
+    renderPaginationControls('team-pagination-container', jobs.length, currentTeamPage, totalPages, changeTeamPage);
+}
+
+// ปิดพาเนลรายละเอียดงานของทีมงาน กลับไปแสดงแค่กริดสรุปทั้งหมด
+function closeTeamDetail() {
+    selectedTeamKey = null;
+    selectedTeamLabel = '';
+    currentTeamPage = 1;
+    const panel = document.getElementById('team-detail-panel');
+    if (panel) panel.classList.add('hidden');
+    // เอากรอบไฮไลต์การ์ดที่เคยเลือกออก (ถ้ายังอยู่ในหน้านี้)
+    const container = document.getElementById('team-breakdown');
+    if (container) {
+        container.querySelectorAll('.border-brand').forEach(el => {
+            el.className = el.className.replace('border-brand shadow-md ring-2 ring-brand/20', 'border-gray-100 hover:border-brand/40 hover:shadow-sm');
+        });
+    }
 }
 
 // Setup Form Event Listeners
