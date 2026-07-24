@@ -45,26 +45,60 @@ const MOCK_DATA = [
 
 const SESSION_KEY = 'sateangnok_session';
 
+// ป้องกัน XSS: แปลงอักขระที่มีความหมายพิเศษใน HTML ให้เป็นข้อความธรรมดา
+// ใช้ทุกจุดที่เอาข้อมูลจากฐานข้อมูล (ซึ่งอาจถูกแก้ไขโดยไม่ผ่านฟอร์มของเราก็ได้) ไปแปะผ่าน innerHTML
+function escapeHtml(str) {
+    if (str === null || str === undefined) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+// ตรวจสอบว่า src ของรูปภาพเป็น data URL รูปภาพ หรือลิงก์ http(s) เท่านั้น
+// ป้องกันไม่ให้ค่าที่แปลกปลอมกลายเป็นช่องทางโจมตี (เช่น javascript: URIs หรือ attribute injection)
+function safeImageSrc(src) {
+    if (typeof src !== 'string') return 'https://placehold.co/600x400/eeeeee/999999?text=ไม่มีรูปภาพ';
+    if (/^data:image\//i.test(src) || /^https?:\/\//i.test(src)) return src;
+    return 'https://placehold.co/600x400/eeeeee/999999?text=ไม่มีรูปภาพ';
+}
+
 // Initialize icons on load
 document.addEventListener('DOMContentLoaded', () => {
     lucide.createIcons();
-    initFirestoreSync();
     setupEventListeners();
 
-    // ถ้าเคยเข้าสู่ระบบไว้แล้ว (มี session ค้างอยู่) ให้ข้ามหน้า Login ไปเลย
-    if (localStorage.getItem(SESSION_KEY) === 'active') {
-        document.getElementById('login-view').classList.add('hidden');
-        const appLayout = document.getElementById('app-layout');
-        appLayout.classList.remove('hidden');
-        navigate('dashboard');
-        lucide.createIcons();
-    }
+    // ตัวเดียวที่ตัดสินว่า "ล็อกอินแล้วจริงหรือไม่" คือ Firebase Authentication
+    // (localStorage ด้านบนใช้แค่กันหน้าจอกระพริบตอนกด F5 เท่านั้น ไม่ใช่ตัวป้องกันความปลอดภัยจริง)
+    auth.onAuthStateChanged((user) => {
+        if (user) {
+            localStorage.setItem(SESSION_KEY, 'active'); // ใช้เพื่อ anti-flash เท่านั้น
+            document.documentElement.classList.add('has-session');
+            document.getElementById('login-view').classList.add('hidden');
+            const appLayout = document.getElementById('app-layout');
+            appLayout.classList.remove('hidden');
+            navigate('dashboard');
+            lucide.createIcons();
+            initFirestoreSync(); // เริ่มซิงก์ข้อมูลก็ต่อเมื่อยืนยันตัวตนสำเร็จแล้วเท่านั้น
+        } else {
+            stopFirestoreSync();
+            localStorage.removeItem(SESSION_KEY);
+            document.documentElement.classList.remove('has-session');
+            document.getElementById('app-layout').classList.add('hidden');
+            const login = document.getElementById('login-view');
+            login.classList.remove('hidden', 'opacity-0');
+        }
+    });
 });
 
 // เชื่อมต่อและซิงก์ข้อมูล "คำร้อง" กับ Firestore แบบเรียลไทม์
 // ทุกคนที่เปิดเว็บนี้จะอ่าน/เขียนข้อมูลชุดเดียวกันจากฐานข้อมูลกลาง แทนที่จะแยกกันอยู่ใน localStorage ของแต่ละเครื่อง
+let firestoreUnsubscribe = null;
 function initFirestoreSync() {
-    db.collection('complaints').onSnapshot((snapshot) => {
+    if (firestoreUnsubscribe) return; // กันไม่ให้ผูก listener ซ้ำซ้อนหากล็อกอิน-ออกหลายรอบ
+    firestoreUnsubscribe = db.collection('complaints').onSnapshot((snapshot) => {
         if (snapshot.empty) {
             // ฐานข้อมูลยังไม่มีข้อมูลเลย (เพิ่งตั้งค่าครั้งแรก) ให้ใส่ข้อมูลตัวอย่างเริ่มต้นให้หนึ่งครั้ง
             seedMockData();
@@ -76,6 +110,14 @@ function initFirestoreSync() {
         console.error('Firestore sync error:', err);
         showToast('เชื่อมต่อฐานข้อมูลไม่สำเร็จ กรุณาตรวจสอบการตั้งค่า Firebase ใน firebase-config.js', 'error');
     });
+}
+
+function stopFirestoreSync() {
+    if (firestoreUnsubscribe) {
+        firestoreUnsubscribe();
+        firestoreUnsubscribe = null;
+    }
+    complaints = [];
 }
 
 function seedMockData() {
@@ -124,38 +166,46 @@ function togglePasswordVisibility() {
     lucide.createIcons({ root: btn });
 }
 
-// Authentication Mock
+// Authentication ผ่าน Firebase Auth จริง (ตรวจสอบฝั่งเซิร์ฟเวอร์ ไม่ใช่แค่ใน JS ฝั่งเครื่อง)
+// ผู้ใช้ยังคงกรอก "ชื่อผู้ใช้งาน" แบบเดิมได้ตามปกติ โค้ดจะแปลงเป็นอีเมลภายในให้เอง
+// เพราะ Firebase Authentication (Email/Password) ต้องใช้รูปแบบอีเมลเป็นตัวระบุบัญชี
+const STAFF_EMAIL_DOMAIN = 'stnkongchang.local'; // ต้องตรงกับตอนสร้างผู้ใช้ในหน้า Firebase Console
+
+function usernameToEmail(username) {
+    return `${username.trim().toLowerCase()}@${STAFF_EMAIL_DOMAIN}`;
+}
+
+let loginInFlight = false;
 document.getElementById('login-form').addEventListener('submit', (e) => {
     e.preventDefault();
-    
+    if (loginInFlight) return;
+
     const user = document.getElementById('login-username').value;
     const pass = document.getElementById('login-password').value;
-    
-    // Check credentials
-    if (user !== 'stnkongchang' || pass !== 'ytctest2026') {
-        showToast('ชื่อผู้ใช้งานหรือรหัสผ่านไม่ถูกต้อง!', 'error');
-        return;
-    }
+    const submitBtn = e.target.querySelector('button[type="submit"]');
 
-    document.getElementById('login-view').classList.add('opacity-0');
-    setTimeout(() => {
-        document.getElementById('login-view').classList.add('hidden');
-        const appLayout = document.getElementById('app-layout');
-        appLayout.classList.remove('hidden');
-        appLayout.classList.add('fade-in');
-        navigate('dashboard');
-        showToast('เข้าสู่ระบบสำเร็จ ยินดีต้อนรับ');
-        localStorage.setItem(SESSION_KEY, 'active'); // จดจำสถานะการเข้าสู่ระบบไว้ ป้องกันหลุดเมื่อกด F5
-    }, 500);
+    loginInFlight = true;
+    if (submitBtn) submitBtn.disabled = true;
+
+    auth.signInWithEmailAndPassword(usernameToEmail(user), pass)
+        .then(() => {
+            // onAuthStateChanged (ด้านบน) จะเป็นตัวจัดการเปลี่ยนหน้าจอเข้าสู่ dashboard ให้เอง
+            showToast('เข้าสู่ระบบสำเร็จ ยินดีต้อนรับ');
+        })
+        .catch((err) => {
+            console.error('Login error:', err.code);
+            // ข้อความเดียวกันทุกกรณี ไม่บอกว่า "ไม่มีบัญชีนี้" หรือ "รหัสผ่านผิด"
+            // เพื่อไม่ให้ผู้ไม่หวังดีใช้เดา (enumerate) ชื่อผู้ใช้งานที่มีอยู่จริงได้
+            showToast('ชื่อผู้ใช้งานหรือรหัสผ่านไม่ถูกต้อง!', 'error');
+        })
+        .finally(() => {
+            loginInFlight = false;
+            if (submitBtn) submitBtn.disabled = false;
+        });
 });
 
 function logout() {
-    localStorage.removeItem(SESSION_KEY); // ล้างสถานะ session เมื่อออกจากระบบ
-    document.documentElement.classList.remove('has-session'); // ปิดการบังคับแสดงผลแบบ anti-flash
-    document.getElementById('app-layout').classList.add('hidden');
-    const login = document.getElementById('login-view');
-    login.classList.remove('hidden', 'opacity-0');
-    login.classList.add('fade-in');
+    auth.signOut(); // onAuthStateChanged จะเป็นตัวจัดการล้างหน้าจอกลับไปหน้า Login ให้เอง
 }
 
 // Navigation
@@ -295,7 +345,7 @@ function renderDetailGallery(containerId, imgs) {
         return;
     }
     container.innerHTML = imgs.map(src => `
-        <img src="${src}" alt="รูปภาพประกอบ" class="w-full h-28 md:h-32 object-cover rounded-xl border-2 border-gray-200 cursor-pointer shadow-sm hover:opacity-90 transition-opacity" onclick="openImageViewer(this.src)" onerror="this.src='https://placehold.co/600x400/eeeeee/999999?text=ไม่มีรูปภาพ'">
+        <img src="${escapeHtml(safeImageSrc(src))}" alt="รูปภาพประกอบ" class="w-full h-28 md:h-32 object-cover rounded-xl border-2 border-gray-200 cursor-pointer shadow-sm hover:opacity-90 transition-opacity" onclick="openImageViewer(this.src)" onerror="this.src='https://placehold.co/600x400/eeeeee/999999?text=ไม่มีรูปภาพ'">
     `).join('');
 }
 
@@ -442,24 +492,24 @@ function renderDashboard() {
             
             <!-- Cover Image -->
             <div class="w-full h-36 bg-gray-100 overflow-hidden relative">
-                <img src="${displayImg}" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" alt="รูปภาพประกอบ" onerror="this.src='https://placehold.co/600x400/eeeeee/999999?text=ไม่มีรูปภาพ'">
+                <img src="${escapeHtml(safeImageSrc(displayImg))}" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" alt="รูปภาพประกอบ" onerror="this.src='https://placehold.co/600x400/eeeeee/999999?text=ไม่มีรูปภาพ'">
                 <div class="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent"></div>
                 <div class="absolute bottom-3 left-3 right-3 flex justify-between items-end">
-                    <span class="px-2.5 py-1 rounded-md text-[10px] font-bold ${st.bg} ${st.color} border ${st.border} shadow-sm backdrop-blur-md bg-opacity-90">${c.status}</span>
-                    <span class="text-[10px] text-white font-medium drop-shadow-md bg-black/30 px-2 py-0.5 rounded-md backdrop-blur-sm">${dStr}</span>
+                    <span class="px-2.5 py-1 rounded-md text-[10px] font-bold ${st.bg} ${st.color} border ${st.border} shadow-sm backdrop-blur-md bg-opacity-90">${escapeHtml(c.status)}</span>
+                    <span class="text-[10px] text-white font-medium drop-shadow-md bg-black/30 px-2 py-0.5 rounded-md backdrop-blur-sm">${escapeHtml(dStr)}</span>
                 </div>
             </div>
 
             <!-- Card Body -->
             <div class="p-4 flex flex-col flex-1">
-                <h3 class="font-bold text-gray-800 mb-2 leading-snug line-clamp-2 group-hover:text-brand transition-colors">${c.title}</h3>
+                <h3 class="font-bold text-gray-800 mb-2 leading-snug line-clamp-2 group-hover:text-brand transition-colors">${escapeHtml(c.title)}</h3>
                 <div class="space-y-1 mb-4 flex-1">
-                    <p class="text-xs text-gray-500 flex items-center gap-1.5"><i data-lucide="map-pin" class="w-3.5 h-3.5 text-gray-400"></i> ${c.zone}</p>
-                    <p class="text-xs text-gray-500 flex items-center gap-1.5"><i data-lucide="user" class="w-3.5 h-3.5 text-gray-400"></i> ผู้ร้อง: ${c.requester}</p>
-                    <p class="text-[10px] text-gray-400 flex items-center gap-1.5 mt-1"><i data-lucide="hard-hat" class="w-3.5 h-3.5 text-gray-400"></i> รับผิดชอบ: ${c.department}</p>
+                    <p class="text-xs text-gray-500 flex items-center gap-1.5"><i data-lucide="map-pin" class="w-3.5 h-3.5 text-gray-400"></i> ${escapeHtml(c.zone)}</p>
+                    <p class="text-xs text-gray-500 flex items-center gap-1.5"><i data-lucide="user" class="w-3.5 h-3.5 text-gray-400"></i> ผู้ร้อง: ${escapeHtml(c.requester)}</p>
+                    <p class="text-[10px] text-gray-400 flex items-center gap-1.5 mt-1"><i data-lucide="hard-hat" class="w-3.5 h-3.5 text-gray-400"></i> รับผิดชอบ: ${escapeHtml(c.department)}</p>
                 </div>
                 <div class="pt-3 border-t border-gray-50 flex items-center justify-between mt-auto">
-                    <p class="text-[10px] font-semibold text-gray-400">ID: ${c.receiveNo || c.id}</p>
+                    <p class="text-[10px] font-semibold text-gray-400">ID: ${escapeHtml(c.receiveNo || c.id)}</p>
                     <button class="text-brand text-xs font-bold hover:underline flex items-center gap-1">ดูรายละเอียด <i data-lucide="chevron-right" class="w-3 h-3"></i></button>
                 </div>
             </div>
