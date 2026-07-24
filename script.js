@@ -98,17 +98,19 @@ document.addEventListener('DOMContentLoaded', () => {
 let firestoreUnsubscribe = null;
 function initFirestoreSync() {
     if (firestoreUnsubscribe) return; // กันไม่ให้ผูก listener ซ้ำซ้อนหากล็อกอิน-ออกหลายรอบ
-    firestoreUnsubscribe = db.collection('complaints').onSnapshot((snapshot) => {
-        if (snapshot.empty) {
-            // ฐานข้อมูลยังไม่มีข้อมูลเลย (เพิ่งตั้งค่าครั้งแรก) ให้ใส่ข้อมูลตัวอย่างเริ่มต้นให้หนึ่งครั้ง
-            seedMockData();
-            return;
-        }
-        complaints = snapshot.docs.map(doc => doc.data());
-        renderDashboard();
-    }, (err) => {
-        console.error('Firestore sync error:', err);
-        showToast('เชื่อมต่อฐานข้อมูลไม่สำเร็จ กรุณาตรวจสอบการตั้งค่า Firebase ใน firebase-config.js', 'error');
+
+    // เช็กให้แน่ใจว่า "เคยเซตข้อมูลตัวอย่างไปแล้วหรือยัง" ก่อนเริ่มฟังข้อมูลจริง
+    // เพื่อไม่ให้ข้อมูลตัวอย่างถูกใส่กลับเข้ามาซ้ำทุกครั้งที่ตารางว่าง (เช่น ตอนผู้ใช้ลบคำร้องทั้งหมดออกโดยตั้งใจ)
+    ensureMockDataSeededOnce().finally(() => {
+        firestoreUnsubscribe = db.collection('complaints').onSnapshot((snapshot) => {
+            // snapshot.empty ที่นี่แปลว่า "ไม่มีคำร้องตอนนี้จริง ๆ" (เช่น ผู้ใช้ลบออกหมด)
+            // ไม่ใช่สัญญาณให้ใส่ข้อมูลตัวอย่างกลับเข้ามาอีกต่อไป
+            complaints = snapshot.docs.map(doc => doc.data());
+            renderDashboard();
+        }, (err) => {
+            console.error('Firestore sync error:', err);
+            showToast('เชื่อมต่อฐานข้อมูลไม่สำเร็จ กรุณาตรวจสอบการตั้งค่า Firebase ใน firebase-config.js', 'error');
+        });
     });
 }
 
@@ -120,12 +122,22 @@ function stopFirestoreSync() {
     complaints = [];
 }
 
-function seedMockData() {
-    const batch = db.batch();
-    MOCK_DATA.forEach(item => {
-        batch.set(db.collection('complaints').doc(String(item.id)), item);
+// ใส่ข้อมูลตัวอย่างเริ่มต้นให้ "ครั้งเดียวตลอดอายุฐานข้อมูล" เท่านั้น
+// อ่านสถานะจากเอกสาร meta/seedStatus แทนการดูว่า collection ว่างหรือไม่ (ซึ่งเปลี่ยนได้ตลอดจากการลบข้อมูลจริง)
+function ensureMockDataSeededOnce() {
+    const seedFlagRef = db.collection('meta').doc('seedStatus');
+    return seedFlagRef.get().then((flagDoc) => {
+        if (flagDoc.exists) return; // เคยเซตไปแล้ว (ไม่ว่าจะเคยลบข้อมูลจริงทิ้งไปแล้วหรือไม่ก็ตาม) ไม่ต้องทำซ้ำ
+
+        const batch = db.batch();
+        MOCK_DATA.forEach(item => {
+            batch.set(db.collection('complaints').doc(String(item.id)), item);
+        });
+        batch.set(seedFlagRef, { seededAt: new Date().toISOString() });
+        return batch.commit().catch(err => console.error('Seed data error:', err));
+    }).catch(err => {
+        console.error('Seed flag check error:', err);
     });
-    batch.commit().catch(err => console.error('Seed data error:', err));
 }
 
 // Custom Toast Notification (Replaces alert)
