@@ -110,6 +110,14 @@
                     <div><p class="text-[10px] text-gray-400 font-bold uppercase">วันที่รับเรื่อง</p><p id="dt-date" class="font-semibold text-gray-800 text-sm"></p></div>
                 </div>
 
+                <!-- Project Work Section -->
+                <div id="dt-project-work-section" class="hidden mb-6 bg-blue-50/50 p-5 rounded-2xl border border-blue-100">
+                    <div class="grid grid-cols-2 md:grid-cols-2 gap-4">
+                        <div><p class="text-[10px] text-gray-400 font-bold uppercase">หัวข้องานโครงการ</p><p id="dt-projectWorkTopic" class="font-semibold text-gray-800 text-sm"></p></div>
+                        <div><p class="text-[10px] text-gray-400 font-bold uppercase">ขั้นตอนการดำเนินงาน</p><p id="dt-workflowStage" class="font-semibold text-gray-800 text-sm"></p></div>
+                    </div>
+                </div>
+
                 <div id="dt-note-section" class="mb-6 bg-red-50 p-4 rounded-xl border border-red-100 hidden">
                     <p class="text-xs font-bold text-red-800 mb-1 flex items-center gap-2"><i data-lucide="info" class="w-4 h-4"></i> หมายเหตุ / อุปสรรค</p>
                     <p id="dt-note" class="text-sm text-red-600 font-medium"></p>
@@ -316,6 +324,7 @@
                                     <option value="ทั้งหมด">ทุกหน่วยงาน</option>
                                     <option value="งานโยธา">งานโยธา</option>
                                     <option value="ฝ่ายแผน">ฝ่ายแผน</option>
+                                    <option value="งานโครงการ">งานโครงการ</option>
                                 </select>
                             </div>
 
@@ -457,6 +466,7 @@
                                     <option value="" disabled selected>-- กรุณาเลือกหน่วยงาน --</option>
                                     <option value="งานโยธา">งานโยธา</option>
                                     <option value="ฝ่ายแผน">ฝ่ายแผน</option>
+                                    <option value="งานโครงการ">งานโครงการ</option>
                                 </select>
                             </div>
                             <div id="sub-department-container" class="hidden">
@@ -468,6 +478,38 @@
                                     <option value="ชุดตัดหญ้า">ชุดตัดหญ้า</option>
                                     <option value="ชุดไฟฟ้า">ชุดไฟฟ้า</option>
                                 </select>
+                            </div>
+                        </div>
+
+                        <!-- Project Work Topic Section (shown only when department = งานโครงการ) -->
+                        <div id="project-work-container" class="hidden">
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div>
+                                    <label class="block text-xs font-bold text-gray-700 uppercase mb-2">หัวข้องานโครงการ <span class="text-red-500">*</span></label>
+                                    <select id="f-projectWorkTopic" required class="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-brand bg-white text-sm outline-none font-semibold text-gray-700">
+                                        <option value="" disabled selected>-- กรุณาเลือกหัวข้องานโครงการ --</option>
+                                        <option value="เทศปัญญัติ">เทศปัญญัติ</option>
+                                        <option value="งบอุดหนุน">งบอุดหนุน</option>
+                                    </select>
+                                </div>
+                                <div id="workflow-stage-container" class="hidden">
+                                    <label class="block text-xs font-bold text-gray-700 uppercase mb-2">ขั้นตอนการดำเนินงาน <span class="text-red-500">*</span></label>
+                                    <select id="f-workflowStage" class="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-brand bg-white text-sm outline-none font-semibold text-gray-700">
+                                        <option value="" disabled selected>-- กรุณาเลือกขั้นตอน --</option>
+                                        <option value="สำรวจ">สำรวจ</option>
+                                        <option value="ออกแบบ">ออกแบบ</option>
+                                        <option value="ประสานการ">ประสานการ</option>
+                                        <option value="เขียนแบบ">เขียนแบบ</option>
+                                        <option value="เสนอเซ็นต์ (ผู้บริหาร) (รอบที่ 1)">เสนอเซ็นต์ (ผู้บริหาร) (รอบที่ 1)</option>
+                                        <option value="เปิดเรื่อง">เปิดเรื่อง</option>
+                                        <option value="ส่งพัสดุ TOP">ส่งพัสดุ TOP</option>
+                                        <option value="เสนอเซ็น (คณะกรรมการ)">เสนอเซ็น (คณะกรรมการ)</option>
+                                        <option value="ราคากลาง">ราคากลาง</option>
+                                        <option value="เสนอเซ็นต์ราคากลาง">เสนอเซ็นต์ราคากลาง</option>
+                                        <option value="ปรับลดหน้างานตามผู้ว่าจ้างเสนอ">ปรับลดหน้างานตามผู้ว่าจ้างเสนอ</option>
+                                        <option value="ทำสัญญา">ทำสัญญา</option>
+                                    </select>
+                                </div>
                             </div>
                         </div>
 

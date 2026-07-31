@@ -32,6 +32,7 @@ const MOCK_DATA = [
     {
         id: 1, title: "ไฟฟ้าส่องว่างสาธารณะดับตลอดเส้นทาง", receiveNo: "125/2569", requester: "นางมาลี รักดี",
         supervisor: "นายวิทยา สุขใจ", department: "งานโยธา", subDepartment: "ชุดไฟฟ้า", zone: "เขต 2",
+        projectWorkTopic: "เทศปัญญัติ", workflowStage: "สำรวจ",
         startDate: "2026-07-10", contactType: "เบอร์โทรศัพท์", contactInfo: "0811112222",
         status: "กำลังดำเนินการ", note: "รอประสานงานการไฟฟ้า", completedDate: "",
         beforeImg: "https://images.unsplash.com/photo-1517420879524-86d64ac2f339?auto=format&fit=crop&w=600&q=80", afterImg: ""
@@ -39,6 +40,7 @@ const MOCK_DATA = [
     {
         id: 2, title: "ถนนชำรุดเป็นหลุมบ่อขนาดใหญ่เป็นระยะทางยาว", receiveNo: "126/2569", requester: "นายสมศักดิ์ ใจดี",
         supervisor: "นายวิทยา สุขใจ", department: "งานโยธา", subDepartment: "ชุดซ่อมปะถนน", zone: "เขต 2",
+        projectWorkTopic: "งบอุดหนุน", workflowStage: "ทำสัญญา",
         startDate: "2026-06-28", contactType: "เบอร์โทรศัพท์", contactInfo: "0822223333",
         status: "เสร็จสมบูรณ์แล้ว", note: "", completedDate: "2026-07-01",
         beforeImg: "https://images.unsplash.com/photo-1515162816999-a0c47dc192f7?auto=format&fit=crop&w=600&q=80",
@@ -312,6 +314,16 @@ function viewDetail(id) {
     // Format Thai Date
     const dObj = new Date(item.startDate);
     document.getElementById('dt-date').textContent = !isNaN(dObj) ? dObj.toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric'}) : item.startDate;
+
+    // Project Work Section (only show for งานโครงการ with project work topic)
+    const projectWorkSection = document.getElementById('dt-project-work-section');
+    if (item.projectWorkTopic && item.department === 'งานโครงการ') {
+        document.getElementById('dt-projectWorkTopic').textContent = item.projectWorkTopic || '-';
+        document.getElementById('dt-workflowStage').textContent = item.workflowStage || '-';
+        projectWorkSection.classList.remove('hidden');
+    } else {
+        projectWorkSection.classList.add('hidden');
+    }
 
     // Note Section
     const noteEl = document.getElementById('dt-note-section');
@@ -1090,7 +1102,12 @@ function setupEventListeners() {
     const deptSelect = document.getElementById('f-department');
     const subDeptContainer = document.getElementById('sub-department-container');
     const subDeptSelect = document.getElementById('f-subDepartment');
+    const projectWorkContainer = document.getElementById('project-work-container');
+    const projectWorkTopicSelect = document.getElementById('f-projectWorkTopic');
+    const workflowStageContainer = document.getElementById('workflow-stage-container');
+    const workflowStageSelect = document.getElementById('f-workflowStage');
 
+    // Show/hide sub-department when department is selected
     deptSelect.addEventListener('change', (e) => {
         if (e.target.value === 'งานโยธา') {
             subDeptContainer.classList.remove('hidden');
@@ -1099,6 +1116,32 @@ function setupEventListeners() {
             subDeptContainer.classList.add('hidden');
             subDeptSelect.removeAttribute('required');
             subDeptSelect.value = '';
+        }
+
+        // Show/hide project work topic section (only for งานโครงการ)
+        if (e.target.value === 'งานโครงการ') {
+            projectWorkContainer.classList.remove('hidden');
+            projectWorkTopicSelect.setAttribute('required', 'true');
+        } else {
+            projectWorkContainer.classList.add('hidden');
+            projectWorkTopicSelect.removeAttribute('required');
+            projectWorkTopicSelect.value = '';
+            // Also reset the workflow stage that depends on the project work topic
+            workflowStageContainer.classList.add('hidden');
+            workflowStageSelect.removeAttribute('required');
+            workflowStageSelect.value = '';
+        }
+    });
+
+    // Show/hide workflow stage when project work topic is selected
+    projectWorkTopicSelect.addEventListener('change', (e) => {
+        if (e.target.value !== '') {
+            workflowStageContainer.classList.remove('hidden');
+            workflowStageSelect.setAttribute('required', 'true');
+        } else {
+            workflowStageContainer.classList.add('hidden');
+            workflowStageSelect.removeAttribute('required');
+            workflowStageSelect.value = '';
         }
     });
 
@@ -1261,6 +1304,14 @@ function resetForm() {
     // reset UI state
     document.getElementById('sub-department-container').classList.add('hidden');
     document.getElementById('f-subDepartment').removeAttribute('required');
+
+    // Reset project work topic container (shown only for งานโครงการ)
+    document.getElementById('project-work-container').classList.add('hidden');
+    document.getElementById('f-projectWorkTopic').removeAttribute('required');
+
+    // Reset workflow stage container
+    document.getElementById('workflow-stage-container').classList.add('hidden');
+    document.getElementById('f-workflowStage').removeAttribute('required');
     
     document.getElementById('f-status').value = 'ยังไม่เริ่ม';
     document.getElementById('note-container').classList.remove('hidden');
@@ -1290,9 +1341,19 @@ function populateForm(item) {
     
     const dept = document.getElementById('f-department');
     dept.value = item.department;
-    dept.dispatchEvent(new Event('change')); // Trigger visibility
+    // Trigger change so the sub-department (งานโยธา) or project work topic (งานโครงการ) section shows as needed
+    dept.dispatchEvent(new Event('change'));
     
     if(item.subDepartment) document.getElementById('f-subDepartment').value = item.subDepartment;
+    
+    // Load project work topic and workflow stage if they exist
+    if(item.projectWorkTopic) {
+        const projectWorkSelect = document.getElementById('f-projectWorkTopic');
+        projectWorkSelect.value = item.projectWorkTopic;
+        projectWorkSelect.dispatchEvent(new Event('change')); // Trigger visibility of workflow stage
+    }
+    
+    if(item.workflowStage) document.getElementById('f-workflowStage').value = item.workflowStage;
     
     document.getElementById('f-zone').value = item.zone;
     document.getElementById('f-startDate').value = item.startDate;
@@ -1324,6 +1385,8 @@ function buildItemFromForm(id, isNew) {
         supervisor: document.getElementById('f-supervisor').value,
         department: document.getElementById('f-department').value,
         subDepartment: document.getElementById('f-subDepartment').value,
+        projectWorkTopic: document.getElementById('f-projectWorkTopic').value,
+        workflowStage: document.getElementById('f-workflowStage').value,
         zone: document.getElementById('f-zone').value,
         startDate: document.getElementById('f-startDate').value,
         contactType: document.getElementById('f-contactType').value,
