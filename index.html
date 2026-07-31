@@ -118,6 +118,12 @@
                     </div>
                 </div>
 
+                <!-- Planning Division Complaint Topic Section -->
+                <div id="dt-planning-topic-section" class="hidden mb-6 bg-purple-50/50 p-5 rounded-2xl border border-purple-100">
+                    <p class="text-[10px] text-gray-400 font-bold uppercase">งานร้องเรียน</p>
+                    <p id="dt-planningTopic" class="font-semibold text-gray-800 text-sm"></p>
+                </div>
+
                 <div id="dt-note-section" class="mb-6 bg-red-50 p-4 rounded-xl border border-red-100 hidden">
                     <p class="text-xs font-bold text-red-800 mb-1 flex items-center gap-2"><i data-lucide="info" class="w-4 h-4"></i> หมายเหตุ / อุปสรรค</p>
                     <p id="dt-note" class="text-sm text-red-600 font-medium"></p>
@@ -476,9 +482,17 @@
                                 <select id="f-subDepartment" class="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-brand bg-white text-sm outline-none font-semibold text-gray-700">
                                     <option value="" disabled selected>-- กรุณาเลือกชุดงาน --</option>
                                     <option value="ชุดซ่อมปะถนน">ชุดซ่อมปะถนน</option>
-                                    <option value="ชุด LCB">ชุดซ่อม LCB</option>
+                                    <option value="ชุด JCB">ชุดซ่อม JCB</option>
                                     <option value="ชุดตัดหญ้า">ชุดตัดหญ้า</option>
                                     <option value="ชุดไฟฟ้า">ชุดไฟฟ้า</option>
+                                </select>
+                            </div>
+                            <div id="planning-topic-container" class="hidden">
+                                <label class="block text-xs font-bold text-gray-700 uppercase mb-2">งานร้องเรียน <span class="text-red-500">*</span></label>
+                                <select id="f-planningTopic" class="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-brand bg-white text-sm outline-none font-semibold text-gray-700">
+                                    <option value="" disabled selected>-- กรุณาเลือกงานร้องเรียน --</option>
+                                    <option value="พรบ.ควบคุมอาคาร">พรบ.ควบคุมอาคาร</option>
+                                    <option value="ขุดดินถมดิน">ขุดดินถมดิน</option>
                                 </select>
                             </div>
                         </div>
@@ -500,7 +514,7 @@
                                         <option value="" disabled selected>-- กรุณาเลือกขั้นตอน --</option>
                                         <option value="สำรวจ">สำรวจ</option>
                                         <option value="ออกแบบ">ออกแบบ</option>
-                                        <option value="ประสานการ">ประสานการ</option>
+                                        <option value="ประมาณการ">ประมาณการ</option>
                                         <option value="เขียนแบบ">เขียนแบบ</option>
                                         <option value="เสนอเซ็นต์ (ผู้บริหาร) (รอบที่ 1)">เสนอเซ็นต์ (ผู้บริหาร) (รอบที่ 1)</option>
                                         <option value="เปิดเรื่อง">เปิดเรื่อง</option>
@@ -672,6 +686,18 @@
                         <select id="team-subdept-filter" class="w-full sm:w-72 px-4 py-2.5 rounded-xl border border-gray-200 focus:ring-2 focus:ring-brand bg-white text-sm outline-none font-semibold text-gray-700">
                             <option value="ทั้งหมด">ทุกชุดปฏิบัติงาน</option>
                         </select>
+                    </div>
+                    <div id="team-planningtopic-filter-container" class="hidden mb-4 flex flex-col sm:flex-row sm:items-center gap-4">
+                        <div class="flex-1 w-full sm:w-auto">
+                            <label class="block text-xs font-bold text-gray-600 mb-2">กรองตามงานร้องเรียน (ฝ่ายแผน)</label>
+                            <select id="team-planningtopic-filter" class="w-full sm:w-72 px-4 py-2.5 rounded-xl border border-gray-200 focus:ring-2 focus:ring-brand bg-white text-sm outline-none font-semibold text-gray-700">
+                                <option value="ทั้งหมด">ทุกงานร้องเรียน</option>
+                            </select>
+                        </div>
+                        <div class="flex items-center gap-3 bg-gray-50/50 border border-gray-100 rounded-2xl px-4 py-3">
+                            <div id="team-planningtopic-chart" class="w-16 h-16 flex-shrink-0"></div>
+                            <div id="team-planningtopic-legend" class="text-xs font-semibold text-gray-600 space-y-1"></div>
+                        </div>
                     </div>
                     <div id="team-detail-list" class="flex flex-col gap-2">
                         <!-- Job rows injected by JS -->
