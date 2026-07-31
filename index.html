@@ -449,13 +449,15 @@
                         </div>
 
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <div>
+                            <div id="requester-field-wrap">
                                 <label class="block text-xs font-bold text-gray-700 uppercase mb-2">ชื่อผู้ร้องเรียน / ผู้แจ้ง <span class="text-red-500">*</span></label>
                                 <input type="text" id="f-requester" required class="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-brand bg-brand-bg/30 text-sm outline-none font-medium">
                             </div>
-                            <div>
-                                <label class="block text-xs font-bold text-gray-700 uppercase mb-2">ผู้ดูแลงาน <span class="text-red-500">*</span></label>
-                                <input type="text" id="f-supervisor" required class="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-brand bg-brand-bg/30 text-sm outline-none font-medium">
+                            <div id="supervisor-slot-top">
+                                <div id="supervisor-field-wrap">
+                                    <label class="block text-xs font-bold text-gray-700 uppercase mb-2">ผู้ดูแลงาน <span class="text-red-500">*</span></label>
+                                    <input type="text" id="f-supervisor" required class="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-brand bg-brand-bg/30 text-sm outline-none font-medium">
+                                </div>
                             </div>
                         </div>
 
@@ -513,8 +515,11 @@
                             </div>
                         </div>
 
+                        <!-- Supervisor field relocates here when department = งานโครงการ -->
+                        <div id="supervisor-slot-project" class="hidden"></div>
+
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <div>
+                            <div id="zone-field-wrap">
                                 <label class="block text-xs font-bold text-gray-700 uppercase mb-2">เขตพื้นที่ <span class="text-red-500">*</span></label>
                                 <select id="f-zone" required class="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-brand bg-white text-sm outline-none font-semibold text-gray-700">
                                     <option value="" disabled selected>-- กรุณาเลือกเขต --</option>
@@ -523,7 +528,7 @@
                                     <option value="เขต 3">เขต 3</option>
                                 </select>
                             </div>
-                            <div>
+                            <div id="startdate-field-wrap">
                                 <label class="block text-xs font-bold text-gray-700 uppercase mb-2">วันที่รับเรื่อง <span class="text-red-500">*</span></label>
                                 <input type="date" id="f-startDate" required class="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-brand bg-white text-sm outline-none font-medium">
                             </div>

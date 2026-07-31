@@ -1106,6 +1106,13 @@ function setupEventListeners() {
     const projectWorkTopicSelect = document.getElementById('f-projectWorkTopic');
     const workflowStageContainer = document.getElementById('workflow-stage-container');
     const workflowStageSelect = document.getElementById('f-workflowStage');
+    const requesterFieldWrap = document.getElementById('requester-field-wrap');
+    const supervisorFieldWrap = document.getElementById('supervisor-field-wrap');
+    const supervisorSlotTop = document.getElementById('supervisor-slot-top');
+    const supervisorSlotProject = document.getElementById('supervisor-slot-project');
+    const zoneFieldWrap = document.getElementById('zone-field-wrap');
+    const zoneSelect = document.getElementById('f-zone');
+    const startDateFieldWrap = document.getElementById('startdate-field-wrap');
 
     // Show/hide sub-department when department is selected
     deptSelect.addEventListener('change', (e) => {
@@ -1130,6 +1137,26 @@ function setupEventListeners() {
             workflowStageContainer.classList.add('hidden');
             workflowStageSelect.removeAttribute('required');
             workflowStageSelect.value = '';
+        }
+
+        // งานโครงการ: ไม่ต้องระบุเขตพื้นที่ และย้ายช่อง "ผู้ดูแลงาน" ไปแสดงด้านล่างหลังหัวข้องานโครงการแทน
+        if (e.target.value === 'งานโครงการ') {
+            supervisorSlotProject.appendChild(supervisorFieldWrap);
+            supervisorSlotProject.classList.remove('hidden');
+            requesterFieldWrap.classList.add('md:col-span-2');
+
+            zoneFieldWrap.classList.add('hidden');
+            zoneSelect.removeAttribute('required');
+            zoneSelect.value = '';
+            startDateFieldWrap.classList.add('md:col-span-2');
+        } else {
+            supervisorSlotTop.appendChild(supervisorFieldWrap);
+            supervisorSlotProject.classList.add('hidden');
+            requesterFieldWrap.classList.remove('md:col-span-2');
+
+            zoneFieldWrap.classList.remove('hidden');
+            zoneSelect.setAttribute('required', 'true');
+            startDateFieldWrap.classList.remove('md:col-span-2');
         }
     });
 
@@ -1312,6 +1339,16 @@ function resetForm() {
     // Reset workflow stage container
     document.getElementById('workflow-stage-container').classList.add('hidden');
     document.getElementById('f-workflowStage').removeAttribute('required');
+
+    // Reset supervisor field back to its default position (next to requester)
+    document.getElementById('supervisor-slot-top').appendChild(document.getElementById('supervisor-field-wrap'));
+    document.getElementById('supervisor-slot-project').classList.add('hidden');
+    document.getElementById('requester-field-wrap').classList.remove('md:col-span-2');
+
+    // Reset zone field back to visible + required
+    document.getElementById('zone-field-wrap').classList.remove('hidden');
+    document.getElementById('f-zone').setAttribute('required', 'true');
+    document.getElementById('startdate-field-wrap').classList.remove('md:col-span-2');
     
     document.getElementById('f-status').value = 'ยังไม่เริ่ม';
     document.getElementById('note-container').classList.remove('hidden');
