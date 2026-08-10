@@ -32,7 +32,6 @@ const MOCK_DATA = [
     {
         id: 1, title: "ไฟฟ้าส่องว่างสาธารณะดับตลอดเส้นทาง", receiveNo: "125/2569", requester: "นางมาลี รักดี",
         supervisor: "นายวิทยา สุขใจ", department: "งานโยธา", subDepartment: "ชุดไฟฟ้า", zone: "เขต 2",
-        projectWorkTopic: "เทศปัญญัติ", workflowStage: "สำรวจ",
         startDate: "2026-07-10", contactType: "เบอร์โทรศัพท์", contactInfo: "0811112222",
         status: "กำลังดำเนินการ", note: "รอประสานงานการไฟฟ้า", completedDate: "",
         beforeImg: "https://images.unsplash.com/photo-1517420879524-86d64ac2f339?auto=format&fit=crop&w=600&q=80", afterImg: ""
@@ -40,7 +39,6 @@ const MOCK_DATA = [
     {
         id: 2, title: "ถนนชำรุดเป็นหลุมบ่อขนาดใหญ่เป็นระยะทางยาว", receiveNo: "126/2569", requester: "นายสมศักดิ์ ใจดี",
         supervisor: "นายวิทยา สุขใจ", department: "งานโยธา", subDepartment: "ชุดซ่อมปะถนน", zone: "เขต 2",
-        projectWorkTopic: "งบอุดหนุน", workflowStage: "ทำสัญญา",
         startDate: "2026-06-28", contactType: "เบอร์โทรศัพท์", contactInfo: "0822223333",
         status: "เสร็จสมบูรณ์แล้ว", note: "", completedDate: "2026-07-01",
         beforeImg: "https://images.unsplash.com/photo-1515162816999-a0c47dc192f7?auto=format&fit=crop&w=600&q=80",
@@ -314,16 +312,6 @@ function viewDetail(id) {
     // Format Thai Date
     const dObj = new Date(item.startDate);
     document.getElementById('dt-date').textContent = !isNaN(dObj) ? dObj.toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric'}) : item.startDate;
-
-    // Project Work Section (only show for งานโครงการ with project work topic)
-    const projectWorkSection = document.getElementById('dt-project-work-section');
-    if (item.projectWorkTopic && item.department === 'งานโครงการ') {
-        document.getElementById('dt-projectWorkTopic').textContent = item.projectWorkTopic || '-';
-        document.getElementById('dt-workflowStage').textContent = item.workflowStage || '-';
-        projectWorkSection.classList.remove('hidden');
-    } else {
-        projectWorkSection.classList.add('hidden');
-    }
 
     // Planning Division Complaint Topic Section (only show for ฝ่ายแผน with planning topic)
     const planningTopicSection = document.getElementById('dt-planning-topic-section');
@@ -758,39 +746,32 @@ let selectedTeamLabel = ''; // ป้ายชื่อทีมงานที�
 let currentTeamPage = 1; // หน้าปัจจุบันของรายการงานในทีมที่เลือก
 let selectedSubDeptFilter = 'ทั้งหมด'; // ตัวกรองชุดปฏิบัติงานย่อย (ใช้เฉพาะตอนเปิดดูทีมงานโยธา)
 let selectedPlanningTopicFilter = 'ทั้งหมด'; // ตัวกรองงานร้องเรียน (ใช้เฉพาะตอนเปิดดูทีมฝ่ายแผน)
-let selectedProjectTopicFilter = 'ทั้งหมด'; // ตัวกรองหัวข้องานโครงการ (ใช้เฉพาะตอนเปิดดูทีมงานโครงการ)
 
 // ชุดปฏิบัติงานย่อยของงานโยธา (ต้องตรงกับตัวเลือกในฟอร์มบันทึกคำร้อง f-subDepartment ทุกประการ)
 const SUB_DEPARTMENTS = [
     { value: 'ชุดซ่อมปะถนน', label: 'ชุดซ่อมปะถนน', color: '#f97316' },
     { value: 'ชุด JCB', label: 'ชุดซ่อม JCB', color: '#eab308' },
     { value: 'ชุดตัดหญ้า', label: 'ชุดตัดหญ้า', color: '#22c55e' },
-    { value: 'ชุดไฟฟ้า', label: 'ชุดไฟฟ้า', color: '#3b82f6' }
+    { value: 'ชุดไฟฟ้า', label: 'ชุดไฟฟ้า', color: '#3b82f6' },
+    { value: 'อื่น ๆ', label: 'อื่น ๆ', color: '#94a3b8' }
 ];
 
 // งานร้องเรียนของฝ่ายแผน (ต้องตรงกับตัวเลือกในฟอร์มบันทึกคำร้อง f-planningTopic ทุกประการ)
 const PLANNING_TOPICS = [
     { value: 'พรบ.ควบคุมอาคาร', label: 'พรบ.ควบคุมอาคาร', color: '#3b82f6' },
-    { value: 'ขุดดินถมดิน', label: 'ขุดดินถมดิน', color: '#f97316' }
+    { value: 'ขุดดินถมดิน', label: 'ขุดดินถมดิน', color: '#f97316' },
+    { value: 'อื่น ๆ', label: 'อื่น ๆ', color: '#94a3b8' }
 ];
 
-// หัวข้องานโครงการ (ต้องตรงกับตัวเลือกในฟอร์มบันทึกคำร้อง f-projectWorkTopic ทุกประการ)
-const PROJECT_WORK_TOPICS = [
-    { value: 'เทศปัญญัติ', label: 'เทศปัญญัติ', color: '#8b5cf6' },
-    { value: 'งบอุดหนุน', label: 'งบอุดหนุน', color: '#06b6d4' }
-];
-
-// รายชื่อ "ทีมงาน" คงที่ 7 ทีม (หน่วยงาน x เขต) ที่ต้องการแสดงเสมอ เรียงตามลำดับนี้ตายตัว
-// งานโยธา จะรวมทุกชุดปฏิบัติงานย่อย (ชุดซ่อมปะถนน/ชุด JCB/ชุดตัดหญ้า/ชุดไฟฟ้า) เข้าเป็นกราฟเดียวต่อเขต
-// งานโครงการ ไม่แยกตามเขต (ฟอร์มไม่ระบุเขตพื้นที่สำหรับหน่วยงานนี้) จึงมีกราฟเดียวรวมทั้งหน่วยงาน
+// รายชื่อ "ทีมงาน" คงที่ 6 ทีม (หน่วยงาน x เขต) ที่ต้องการแสดงเสมอ เรียงตามลำดับนี้ตายตัว
+// งานโยธา จะรวมทุกชุดปฏิบัติงานย่อย (ชุดซ่อมปะถนน/ชุด JCB/ชุดตัดหญ้า/ชุดไฟฟ้า/อื่น ๆ) เข้าเป็นกราฟเดียวต่อเขต
 const FIXED_TEAMS = [
     { department: 'งานโยธา', zone: 'เขต 1' },
     { department: 'งานโยธา', zone: 'เขต 2' },
     { department: 'งานโยธา', zone: 'เขต 3' },
     { department: 'ฝ่ายแผน', zone: 'เขต 1' },
     { department: 'ฝ่ายแผน', zone: 'เขต 2' },
-    { department: 'ฝ่ายแผน', zone: 'เขต 3' },
-    { department: 'งานโครงการ', zone: '' }
+    { department: 'ฝ่ายแผน', zone: 'เขต 3' }
 ];
 
 // สรุปภาระงานคงค้าง แยกเป็น 6 กราฟตายตัวตาม FIXED_TEAMS (งานโยธา เขต 1-3, ฝ่ายแผน เขต 1-3)
@@ -968,7 +949,7 @@ function drawPlanningTopicChart(counts, total) {
 }
 
 // วาดกราฟวงกลม (โดนัท) แสดงสัดส่วนชุดปฏิบัติงานย่อยของงานโยธา (ชุดซ่อมปะถนน/ชุด JCB/ชุดตัดหญ้า/ชุดไฟฟ้า)
-// พร้อมคำอธิบายสัญลักษณ์ (legend) บอกจำนวนแต่ละชุดกำกับไว้ข้าง ๆ (โครงสร้างเดียวกับ drawPlanningTopicChart/drawProjectTopicChart)
+// พร้อมคำอธิบายสัญลักษณ์ (legend) บอกจำนวนแต่ละชุดกำกับไว้ข้าง ๆ (โครงสร้างเดียวกับ drawPlanningTopicChart)
 function drawSubDeptChart(counts, total) {
     const chartEl = document.getElementById('team-subdept-chart');
     const legendEl = document.getElementById('team-subdept-legend');
@@ -976,67 +957,6 @@ function drawSubDeptChart(counts, total) {
 
     chartEl.innerHTML = '';
     const data = SUB_DEPARTMENTS.map(sd => ({ label: sd.label, value: counts[sd.value] || 0, color: sd.color }));
-    const activeData = data.filter(d => d.value > 0);
-
-    const width = 64, height = 64, margin = 2;
-    const radius = Math.min(width, height) / 2 - margin;
-
-    const svg = d3.select(chartEl)
-        .append("svg")
-        .attr("width", "100%")
-        .attr("height", "100%")
-        .attr("viewBox", `0 0 ${width} ${height}`)
-        .attr("preserveAspectRatio", "xMidYMid meet")
-        .append("g")
-        .attr("transform", `translate(${width / 2},${height / 2})`);
-
-    if (activeData.length === 0) {
-        // ไม่มีข้อมูล ให้แสดงวงแหวนสีเทาจาง ๆ แทนวงเปล่า
-        svg.append("circle")
-            .attr("r", radius)
-            .attr("fill", "none")
-            .attr("stroke", "#e5e7eb")
-            .attr("stroke-width", radius * 0.45);
-    } else {
-        const pie = d3.pie().value(d => d.value).sort(null);
-        const data_ready = pie(activeData);
-        const arcGenerator = d3.arc().innerRadius(radius * 0.55).outerRadius(radius);
-
-        svg.selectAll('path')
-            .data(data_ready)
-            .join('path')
-            .attr('d', arcGenerator)
-            .attr('fill', d => d.data.color)
-            .attr("stroke", "#ffffff")
-            .style("stroke-width", "2px");
-    }
-
-    svg.append("text")
-        .attr("text-anchor", "middle")
-        .text(total)
-        .style("font-size", "15px")
-        .style("fill", "#1f2937")
-        .style("font-weight", "900")
-        .style("font-family", "'Prompt', sans-serif")
-        .attr("dy", "0.35em");
-
-    legendEl.innerHTML = data.map(d => `
-        <div class="flex items-center gap-1.5">
-            <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" style="background-color:${d.color}"></span>
-            <span>${escapeHtml(d.label)} (${d.value})</span>
-        </div>
-    `).join('');
-}
-
-// วาดกราฟวงกลม (โดนัท) แสดงสัดส่วนหัวข้องานโครงการ (เทศปัญญัติ / งบอุดหนุน)
-// พร้อมคำอธิบายสัญลักษณ์ (legend) บอกจำนวนแต่ละประเภทกำกับไว้ข้าง ๆ (โครงสร้างเดียวกับ drawPlanningTopicChart)
-function drawProjectTopicChart(counts, total) {
-    const chartEl = document.getElementById('team-projecttopic-chart');
-    const legendEl = document.getElementById('team-projecttopic-legend');
-    if (!chartEl || !legendEl) return;
-
-    chartEl.innerHTML = '';
-    const data = PROJECT_WORK_TOPICS.map(pt => ({ label: pt.label, value: counts[pt.value] || 0, color: pt.color }));
     const activeData = data.filter(d => d.value > 0);
 
     const width = 64, height = 64, margin = 2;
@@ -1098,7 +1018,6 @@ function showTeamDetail(key, label) {
         currentTeamPage = 1; // เปิดทีมใหม่ ให้เริ่มจากหน้าแรกเสมอ
         selectedSubDeptFilter = 'ทั้งหมด'; // เปิดทีมใหม่ ล้างตัวกรองชุดปฏิบัติงานเดิมเสมอ
         selectedPlanningTopicFilter = 'ทั้งหมด'; // เปิดทีมใหม่ ล้างตัวกรองงานร้องเรียนเดิมเสมอ
-        selectedProjectTopicFilter = 'ทั้งหมด'; // เปิดทีมใหม่ ล้างตัวกรองหัวข้องานโครงการเดิมเสมอ
     }
 
     renderTeamDetailList();
@@ -1128,15 +1047,12 @@ function renderTeamDetailList() {
     const subDeptSelect = document.getElementById('team-subdept-filter');
     const planningTopicContainer = document.getElementById('team-planningtopic-filter-container');
     const planningTopicSelect = document.getElementById('team-planningtopic-filter');
-    const projectTopicContainer = document.getElementById('team-projecttopic-filter-container');
-    const projectTopicSelect = document.getElementById('team-projecttopic-filter');
     if (!panel || !titleEl || !listEl || !selectedTeamKey) return;
 
     const [department, zone] = selectedTeamKey.split('|');
     const teamJobs = complaints.filter(c => c.department === department && c.zone === zone);
     const isGovyotha = department === 'งานโยธา';
     const isPlanning = department === 'ฝ่ายแผน';
-    const isProject = department === 'งานโครงการ';
 
     // งานโยธา เท่านั้นที่มีชุดปฏิบัติงานย่อยให้เลือกกรองเพิ่ม (แสดงจำนวนงานกำกับแต่ละชุดไว้ในตัวเลือกด้วย)
     if (isGovyotha && subDeptContainer && subDeptSelect) {
@@ -1172,37 +1088,16 @@ function renderTeamDetailList() {
         planningTopicContainer.classList.add('hidden'); // หน่วยงานอื่นไม่มีงานร้องเรียนแบบนี้ ไม่ต้องแสดงตัวกรอง/กราฟ
     }
 
-    // งานโครงการ เท่านั้นที่มีหัวข้องานโครงการให้เลือกกรองเพิ่ม พร้อมกราฟวงกลมสรุปสัดส่วน
-    if (isProject && projectTopicContainer && projectTopicSelect) {
-        projectTopicContainer.classList.remove('hidden');
-        const topicCounts = {};
-        PROJECT_WORK_TOPICS.forEach(pt => { topicCounts[pt.value] = 0; });
-        teamJobs.forEach(c => { if (topicCounts[c.projectWorkTopic] !== undefined) topicCounts[c.projectWorkTopic]++; });
-
-        projectTopicSelect.innerHTML = `
-            <option value="ทั้งหมด">ทุกหัวข้องานโครงการ (${teamJobs.length})</option>
-            ${PROJECT_WORK_TOPICS.map(pt => `<option value="${escapeHtml(pt.value)}">${escapeHtml(pt.label)} (${topicCounts[pt.value]})</option>`).join('')}
-        `;
-        projectTopicSelect.value = selectedProjectTopicFilter;
-        drawProjectTopicChart(topicCounts, teamJobs.length);
-    } else if (projectTopicContainer) {
-        projectTopicContainer.classList.add('hidden'); // หน่วยงานอื่นไม่มีหัวข้องานโครงการแบบนี้ ไม่ต้องแสดงตัวกรอง/กราฟ
-    }
-
     const jobs = (isGovyotha && selectedSubDeptFilter !== 'ทั้งหมด')
         ? teamJobs.filter(c => c.subDepartment === selectedSubDeptFilter)
         : (isPlanning && selectedPlanningTopicFilter !== 'ทั้งหมด')
             ? teamJobs.filter(c => c.planningTopic === selectedPlanningTopicFilter)
-            : (isProject && selectedProjectTopicFilter !== 'ทั้งหมด')
-                ? teamJobs.filter(c => c.projectWorkTopic === selectedProjectTopicFilter)
-                : teamJobs;
+            : teamJobs;
 
     const subDeptLabel = SUB_DEPARTMENTS.find(sd => sd.value === selectedSubDeptFilter)?.label;
     const planningTopicLabel = PLANNING_TOPICS.find(pt => pt.value === selectedPlanningTopicFilter)?.label;
-    const projectTopicLabel = PROJECT_WORK_TOPICS.find(pt => pt.value === selectedProjectTopicFilter)?.label;
     const titleSuffix = (isGovyotha && selectedSubDeptFilter !== 'ทั้งหมด' && subDeptLabel) ? ` - ${subDeptLabel}`
-        : (isPlanning && selectedPlanningTopicFilter !== 'ทั้งหมด' && planningTopicLabel) ? ` - ${planningTopicLabel}`
-        : (isProject && selectedProjectTopicFilter !== 'ทั้งหมด' && projectTopicLabel) ? ` - ${projectTopicLabel}` : '';
+        : (isPlanning && selectedPlanningTopicFilter !== 'ทั้งหมด' && planningTopicLabel) ? ` - ${planningTopicLabel}` : '';
     titleEl.textContent = `${selectedTeamLabel}${titleSuffix} (${jobs.length} งาน)`;
 
     if (jobs.length === 0) {
@@ -1291,7 +1186,6 @@ function closeTeamDetail() {
     currentTeamPage = 1;
     selectedSubDeptFilter = 'ทั้งหมด';
     selectedPlanningTopicFilter = 'ทั้งหมด';
-    selectedProjectTopicFilter = 'ทั้งหมด';
     const panel = document.getElementById('team-detail-panel');
     if (panel) panel.classList.add('hidden');
     // เอากรอบไฮไลต์การ์ดที่เคยเลือกออก (ถ้ายังอยู่ในหน้านี้)
@@ -1327,16 +1221,6 @@ function setupEventListeners() {
         });
     }
 
-    // ตัวกรองหัวข้องานโครงการ ในพาเนลรายละเอียดทีมงาน (ใช้เฉพาะตอนเปิดดูทีมงานโครงการ)
-    const teamProjectTopicFilterEl = document.getElementById('team-projecttopic-filter');
-    if (teamProjectTopicFilterEl) {
-        teamProjectTopicFilterEl.addEventListener('change', (e) => {
-            selectedProjectTopicFilter = e.target.value;
-            currentTeamPage = 1;
-            renderTeamDetailList();
-        });
-    }
-    
     // Time filter handling (PILLS)
     const timeBtns = document.querySelectorAll('.time-btn');
     const customDateContainer = document.getElementById('custom-date-container');
@@ -1385,17 +1269,6 @@ function setupEventListeners() {
     const subDeptSelect = document.getElementById('f-subDepartment');
     const planningTopicContainer = document.getElementById('planning-topic-container');
     const planningTopicSelect = document.getElementById('f-planningTopic');
-    const projectWorkContainer = document.getElementById('project-work-container');
-    const projectWorkTopicSelect = document.getElementById('f-projectWorkTopic');
-    const workflowStageContainer = document.getElementById('workflow-stage-container');
-    const workflowStageSelect = document.getElementById('f-workflowStage');
-    const requesterFieldWrap = document.getElementById('requester-field-wrap');
-    const supervisorFieldWrap = document.getElementById('supervisor-field-wrap');
-    const supervisorSlotTop = document.getElementById('supervisor-slot-top');
-    const supervisorSlotProject = document.getElementById('supervisor-slot-project');
-    const zoneFieldWrap = document.getElementById('zone-field-wrap');
-    const zoneSelect = document.getElementById('f-zone');
-    const startDateFieldWrap = document.getElementById('startdate-field-wrap');
 
     // Show/hide sub-department when department is selected
     deptSelect.addEventListener('change', (e) => {
@@ -1416,52 +1289,6 @@ function setupEventListeners() {
             planningTopicContainer.classList.add('hidden');
             planningTopicSelect.removeAttribute('required');
             planningTopicSelect.value = '';
-        }
-
-        // Show/hide project work topic section (only for งานโครงการ)
-        if (e.target.value === 'งานโครงการ') {
-            projectWorkContainer.classList.remove('hidden');
-            projectWorkTopicSelect.setAttribute('required', 'true');
-        } else {
-            projectWorkContainer.classList.add('hidden');
-            projectWorkTopicSelect.removeAttribute('required');
-            projectWorkTopicSelect.value = '';
-            // Also reset the workflow stage that depends on the project work topic
-            workflowStageContainer.classList.add('hidden');
-            workflowStageSelect.removeAttribute('required');
-            workflowStageSelect.value = '';
-        }
-
-        // งานโครงการ: ไม่ต้องระบุเขตพื้นที่ และย้ายช่อง "ผู้ดูแลงาน" ไปแสดงด้านล่างหลังหัวข้องานโครงการแทน
-        if (e.target.value === 'งานโครงการ') {
-            supervisorSlotProject.appendChild(supervisorFieldWrap);
-            supervisorSlotProject.classList.remove('hidden');
-            requesterFieldWrap.classList.add('md:col-span-2');
-
-            zoneFieldWrap.classList.add('hidden');
-            zoneSelect.removeAttribute('required');
-            zoneSelect.value = '';
-            startDateFieldWrap.classList.add('md:col-span-2');
-        } else {
-            supervisorSlotTop.appendChild(supervisorFieldWrap);
-            supervisorSlotProject.classList.add('hidden');
-            requesterFieldWrap.classList.remove('md:col-span-2');
-
-            zoneFieldWrap.classList.remove('hidden');
-            zoneSelect.setAttribute('required', 'true');
-            startDateFieldWrap.classList.remove('md:col-span-2');
-        }
-    });
-
-    // Show/hide workflow stage when project work topic is selected
-    projectWorkTopicSelect.addEventListener('change', (e) => {
-        if (e.target.value !== '') {
-            workflowStageContainer.classList.remove('hidden');
-            workflowStageSelect.setAttribute('required', 'true');
-        } else {
-            workflowStageContainer.classList.add('hidden');
-            workflowStageSelect.removeAttribute('required');
-            workflowStageSelect.value = '';
         }
     });
 
@@ -1629,24 +1456,6 @@ function resetForm() {
     document.getElementById('planning-topic-container').classList.add('hidden');
     document.getElementById('f-planningTopic').removeAttribute('required');
 
-    // Reset project work topic container (shown only for งานโครงการ)
-    document.getElementById('project-work-container').classList.add('hidden');
-    document.getElementById('f-projectWorkTopic').removeAttribute('required');
-
-    // Reset workflow stage container
-    document.getElementById('workflow-stage-container').classList.add('hidden');
-    document.getElementById('f-workflowStage').removeAttribute('required');
-
-    // Reset supervisor field back to its default position (next to requester)
-    document.getElementById('supervisor-slot-top').appendChild(document.getElementById('supervisor-field-wrap'));
-    document.getElementById('supervisor-slot-project').classList.add('hidden');
-    document.getElementById('requester-field-wrap').classList.remove('md:col-span-2');
-
-    // Reset zone field back to visible + required
-    document.getElementById('zone-field-wrap').classList.remove('hidden');
-    document.getElementById('f-zone').setAttribute('required', 'true');
-    document.getElementById('startdate-field-wrap').classList.remove('md:col-span-2');
-    
     document.getElementById('f-status').value = 'ยังไม่เริ่ม';
     document.getElementById('note-container').classList.remove('hidden');
     document.getElementById('finished-container').classList.add('hidden');
@@ -1675,22 +1484,13 @@ function populateForm(item) {
     
     const dept = document.getElementById('f-department');
     dept.value = item.department;
-    // Trigger change so the sub-department (งานโยธา) or project work topic (งานโครงการ) section shows as needed
+    // Trigger change so the sub-department (งานโยธา) or planning topic (ฝ่ายแผน) section shows as needed
     dept.dispatchEvent(new Event('change'));
     
     if(item.subDepartment) document.getElementById('f-subDepartment').value = item.subDepartment;
 
     if(item.planningTopic) document.getElementById('f-planningTopic').value = item.planningTopic;
 
-    // Load project work topic and workflow stage if they exist
-    if(item.projectWorkTopic) {
-        const projectWorkSelect = document.getElementById('f-projectWorkTopic');
-        projectWorkSelect.value = item.projectWorkTopic;
-        projectWorkSelect.dispatchEvent(new Event('change')); // Trigger visibility of workflow stage
-    }
-    
-    if(item.workflowStage) document.getElementById('f-workflowStage').value = item.workflowStage;
-    
     document.getElementById('f-zone').value = item.zone;
     document.getElementById('f-startDate').value = item.startDate;
     document.getElementById('f-contactType').value = item.contactType;
@@ -1722,8 +1522,6 @@ function buildItemFromForm(id, isNew) {
         department: document.getElementById('f-department').value,
         subDepartment: document.getElementById('f-subDepartment').value,
         planningTopic: document.getElementById('f-planningTopic').value,
-        projectWorkTopic: document.getElementById('f-projectWorkTopic').value,
-        workflowStage: document.getElementById('f-workflowStage').value,
         zone: document.getElementById('f-zone').value,
         startDate: document.getElementById('f-startDate').value,
         contactType: document.getElementById('f-contactType').value,
