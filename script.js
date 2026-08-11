@@ -322,6 +322,15 @@ function viewDetail(id) {
         planningTopicSection.classList.add('hidden');
     }
 
+    // Other Work Notes Section (show when "อื่น ๆ" is selected in subDepartment or planningTopic)
+    const otherWorkNotesSection = document.getElementById('dt-other-work-notes-section');
+    if (item.otherWorkNotes) {
+        document.getElementById('dt-otherWorkNotes').textContent = item.otherWorkNotes;
+        otherWorkNotesSection.classList.remove('hidden');
+    } else {
+        otherWorkNotesSection.classList.add('hidden');
+    }
+
     // Note Section
     const noteEl = document.getElementById('dt-note-section');
     if(item.status !== 'เสร็จสมบูรณ์แล้ว' && item.note) {
@@ -1269,6 +1278,58 @@ function setupEventListeners() {
     const subDeptSelect = document.getElementById('f-subDepartment');
     const planningTopicContainer = document.getElementById('planning-topic-container');
     const planningTopicSelect = document.getElementById('f-planningTopic');
+    const otherWorkNotesContainer = document.getElementById('other-work-notes-container');
+    const otherWorkNotesInput = document.getElementById('f-otherWorkNotes');
+
+    const statusSelect = document.getElementById('f-status');
+    const noteContainer = document.getElementById('note-container');
+    const noteInput = document.getElementById('f-note');
+    const finishedContainer = document.getElementById('finished-container');
+    const completedDateInput = document.getElementById('f-completedDate');
+    const noteRequiredMark = document.getElementById('note-required-mark');
+
+    // อัปเดตการแสดง/ซ่อนและกำหนด required ของช่องระบุชุดปฏิบัติงานหรืองานร้องเรียนอื่น ๆ
+    function updateOtherWorkNotesState() {
+        const isSubDeptOther = subDeptSelect.value === 'อื่น ๆ';
+        const isPlanningTopicOther = planningTopicSelect.value === 'อื่น ๆ';
+        
+        if (isSubDeptOther || isPlanningTopicOther) {
+            otherWorkNotesContainer.classList.remove('hidden');
+            otherWorkNotesInput.setAttribute('required', 'true');
+        } else {
+            otherWorkNotesContainer.classList.add('hidden');
+            otherWorkNotesInput.removeAttribute('required');
+            otherWorkNotesInput.value = ''; // ล้างค่าเมื่อซ่อน
+        }
+    }
+
+    // รวม logic แสดง/บังคับกรอก "หมายเหตุ" ไว้ที่เดียว เพื่อให้ผลลัพธ์ตรงกันไม่ว่าจะเปลี่ยน
+    // สถานะ, หน่วยงาน, ชุดปฏิบัติงาน(งานโยธา) หรืองานร้องเรียน(ฝ่ายแผน) ก่อน-หลังกันก็ตาม
+    function updateNoteState() {
+        const isOtherSelected = (subDeptSelect.value === 'อื่น ๆ') || (planningTopicSelect.value === 'อื่น ๆ');
+
+        if (statusSelect.value === 'เสร็จสมบูรณ์แล้ว') {
+            // งานเสร็จสมบูรณ์แล้ว: ซ่อนหมายเหตุเสมอ ไม่ว่าจะเลือก "อื่น ๆ" ไว้หรือไม่
+            noteContainer.classList.add('hidden');
+            finishedContainer.classList.remove('hidden');
+            completedDateInput.setAttribute('required', 'true');
+            noteInput.removeAttribute('required');
+            noteRequiredMark.classList.add('hidden');
+        } else {
+            noteContainer.classList.remove('hidden');
+            finishedContainer.classList.add('hidden');
+            completedDateInput.removeAttribute('required');
+
+            // บังคับกรอกหมายเหตุเมื่อ "ยังไม่เริ่ม" หรือเมื่อเลือก "อื่น ๆ" ในชุดปฏิบัติงาน/งานร้องเรียน
+            if (statusSelect.value === 'ยังไม่เริ่ม' || isOtherSelected) {
+                noteInput.setAttribute('required', 'true');
+                noteRequiredMark.classList.remove('hidden');
+            } else {
+                noteInput.removeAttribute('required');
+                noteRequiredMark.classList.add('hidden');
+            }
+        }
+    }
 
     // Show/hide sub-department when department is selected
     deptSelect.addEventListener('change', (e) => {
@@ -1290,37 +1351,23 @@ function setupEventListeners() {
             planningTopicSelect.removeAttribute('required');
             planningTopicSelect.value = '';
         }
+
+        // เปลี่ยนหน่วยงานแล้วค่า "อื่น ๆ" เดิมอาจถูกล้างไป ต้องอัปเดตสถานะหมายเหตุใหม่ทุกครั้ง
+        updateNoteState();
+        updateOtherWorkNotesState();
     });
 
-    const statusSelect = document.getElementById('f-status');
-    const noteContainer = document.getElementById('note-container');
-    const noteInput = document.getElementById('f-note');
-    const finishedContainer = document.getElementById('finished-container');
-    const completedDateInput = document.getElementById('f-completedDate');
+    statusSelect.addEventListener('change', updateNoteState);
 
-    statusSelect.addEventListener('change', (e) => {
-        const val = e.target.value;
-        const noteRequiredMark = document.getElementById('note-required-mark');
-        if (val === 'เสร็จสมบูรณ์แล้ว') {
-            noteContainer.classList.add('hidden');
-            finishedContainer.classList.remove('hidden');
-            completedDateInput.setAttribute('required', 'true');
-            noteInput.removeAttribute('required');
-            noteRequiredMark.classList.add('hidden');
-        } else {
-            noteContainer.classList.remove('hidden');
-            finishedContainer.classList.add('hidden');
-            completedDateInput.removeAttribute('required');
-
-            // "ยังไม่เริ่ม" (ยังไม่เริ่มดำเนินการ) ต้องระบุหมายเหตุ/สาเหตุด้วยเสมอ
-            if (val === 'ยังไม่เริ่ม') {
-                noteInput.setAttribute('required', 'true');
-                noteRequiredMark.classList.remove('hidden');
-            } else {
-                noteInput.removeAttribute('required');
-                noteRequiredMark.classList.add('hidden');
-            }
-        }
+    // เลือก "อื่น ๆ" ในชุดปฏิบัติงาน (งานโยธา) หรืองานร้องเรียน (ฝ่ายแผน) ให้แสดง/บังคับกรอกหมายเหตุ
+    // และย้อนกลับสถานะให้ถูกต้องเมื่อเปลี่ยนไปเลือกตัวเลือกอื่นที่ไม่ใช่ "อื่น ๆ"
+    subDeptSelect.addEventListener('change', () => {
+        updateNoteState();
+        updateOtherWorkNotesState();
+    });
+    planningTopicSelect.addEventListener('change', () => {
+        updateNoteState();
+        updateOtherWorkNotesState();
     });
 
     // Image Upload Handlers (รองรับแนบได้หลายรูปต่อหัวข้อ)
@@ -1456,6 +1503,10 @@ function resetForm() {
     document.getElementById('planning-topic-container').classList.add('hidden');
     document.getElementById('f-planningTopic').removeAttribute('required');
 
+    // Reset other work notes container (shown when "อื่น ๆ" is selected)
+    document.getElementById('other-work-notes-container').classList.add('hidden');
+    document.getElementById('f-otherWorkNotes').removeAttribute('required');
+
     document.getElementById('f-status').value = 'ยังไม่เริ่ม';
     document.getElementById('note-container').classList.remove('hidden');
     document.getElementById('finished-container').classList.add('hidden');
@@ -1491,6 +1542,8 @@ function populateForm(item) {
 
     if(item.planningTopic) document.getElementById('f-planningTopic').value = item.planningTopic;
 
+    if(item.otherWorkNotes) document.getElementById('f-otherWorkNotes').value = item.otherWorkNotes;
+
     document.getElementById('f-zone').value = item.zone;
     document.getElementById('f-startDate').value = item.startDate;
     document.getElementById('f-contactType').value = item.contactType;
@@ -1522,6 +1575,7 @@ function buildItemFromForm(id, isNew) {
         department: document.getElementById('f-department').value,
         subDepartment: document.getElementById('f-subDepartment').value,
         planningTopic: document.getElementById('f-planningTopic').value,
+        otherWorkNotes: document.getElementById('f-otherWorkNotes').value,
         zone: document.getElementById('f-zone').value,
         startDate: document.getElementById('f-startDate').value,
         contactType: document.getElementById('f-contactType').value,
