@@ -31,7 +31,7 @@ function normalizeImgArray(arrField, legacyField) {
 const MOCK_DATA = [
     {
         id: 1, title: "ไฟฟ้าส่องว่างสาธารณะดับตลอดเส้นทาง", receiveNo: "125/2569", requester: "นางมาลี รักดี",
-        supervisor: "นายวิทยา สุขใจ", department: "งานโยธา", subDepartment: "ชุดไฟฟ้า", zone: "เขต 2",
+        supervisor: "นายวิทยา สุขใจ", department: "งานไฟฟ้า", subDepartment: "", zone: "เขต 2",
         startDate: "2026-07-10", contactType: "เบอร์โทรศัพท์", contactInfo: "0811112222",
         status: "กำลังดำเนินการ", note: "รอประสานงานการไฟฟ้า", completedDate: "",
         beforeImg: "https://images.unsplash.com/photo-1517420879524-86d64ac2f339?auto=format&fit=crop&w=600&q=80", afterImg: ""
@@ -66,6 +66,25 @@ function safeImageSrc(src) {
     if (typeof src !== 'string') return 'https://placehold.co/600x400/eeeeee/999999?text=ไม่มีรูปภาพ';
     if (/^data:image\//i.test(src) || /^https?:\/\//i.test(src)) return src;
     return 'https://placehold.co/600x400/eeeeee/999999?text=ไม่มีรูปภาพ';
+}
+
+// จัดรูปแบบวันที่เป็นภาษาไทยโดยแสดงปีพ.ศ. (Buddhist Era)
+// พ.ศ. = ค.ศ. + 543
+function formatThaiDate(dateObj, format = 'short') {
+    if (isNaN(dateObj)) return '';
+    
+    const monthsShort = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+    const monthsLong = ['มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน', 'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'];
+    
+    const day = dateObj.getDate();
+    const month = dateObj.getMonth();
+    const year = dateObj.getFullYear() + 543; // แปลงเป็น พ.ศ.
+    
+    if (format === 'long') {
+        return `${day} ${monthsLong[month]} ${year}`;
+    } else {
+        return `${day} ${monthsShort[month]} ${year}`;
+    }
 }
 
 // Initialize icons on load
@@ -309,9 +328,9 @@ function viewDetail(id) {
     document.getElementById('dt-dept').textContent = item.department + (item.subDepartment ? ` (${item.subDepartment})` : '');
     document.getElementById('dt-supervisor').textContent = item.supervisor;
     
-    // Format Thai Date
+    // Format Thai Date with Buddhist Year (พ.ศ.)
     const dObj = new Date(item.startDate);
-    document.getElementById('dt-date').textContent = !isNaN(dObj) ? dObj.toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric'}) : item.startDate;
+    document.getElementById('dt-date').textContent = !isNaN(dObj) ? formatThaiDate(dObj, 'short') : item.startDate;
 
     // Planning Division Complaint Topic Section (only show for ฝ่ายแผน with planning topic)
     const planningTopicSection = document.getElementById('dt-planning-topic-section');
@@ -363,7 +382,7 @@ function viewDetail(id) {
         renderDetailGallery('dt-after-grid', afterArr);
         if(item.completedDate) {
             const cObj = new Date(item.completedDate);
-            completeDate.textContent = "ดำเนินการเสร็จเมื่อ: " + (!isNaN(cObj) ? cObj.toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric'}) : item.completedDate);
+            completeDate.textContent = "ดำเนินการเสร็จเมื่อ: " + (!isNaN(cObj) ? formatThaiDate(cObj, 'long') : item.completedDate);
             completeDate.classList.remove('hidden');
         } else {
             completeDate.classList.add('hidden');
@@ -514,9 +533,9 @@ function renderDashboard() {
     pageItems.forEach(c => {
         const st = STATUS_CONFIG[c.status];
         
-        // Format date roughly
+        // Format date with Buddhist Year (พ.ศ.)
         const dObj = new Date(c.startDate);
-        const dStr = !isNaN(dObj) ? dObj.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit'}) : c.startDate;
+        const dStr = !isNaN(dObj) ? formatThaiDate(dObj, 'short') : c.startDate;
 
         // Determine which image to show (After img has priority if finished, else Before img, else Placeholder)
         const cAfterArr = normalizeImgArray(c.afterImgs, c.afterImg);
@@ -761,7 +780,6 @@ const SUB_DEPARTMENTS = [
     { value: 'ชุดซ่อมปะถนน', label: 'ชุดซ่อมปะถนน', color: '#f97316' },
     { value: 'ชุด JCB', label: 'ชุดซ่อม JCB', color: '#eab308' },
     { value: 'ชุดตัดหญ้า', label: 'ชุดตัดหญ้า', color: '#22c55e' },
-    { value: 'ชุดไฟฟ้า', label: 'ชุดไฟฟ้า', color: '#3b82f6' },
     { value: 'อื่น ๆ', label: 'อื่น ๆ', color: '#94a3b8' }
 ];
 
@@ -772,12 +790,15 @@ const PLANNING_TOPICS = [
     { value: 'อื่น ๆ', label: 'อื่น ๆ', color: '#94a3b8' }
 ];
 
-// รายชื่อ "ทีมงาน" คงที่ 6 ทีม (หน่วยงาน x เขต) ที่ต้องการแสดงเสมอ เรียงตามลำดับนี้ตายตัว
-// งานโยธา จะรวมทุกชุดปฏิบัติงานย่อย (ชุดซ่อมปะถนน/ชุด JCB/ชุดตัดหญ้า/ชุดไฟฟ้า/อื่น ๆ) เข้าเป็นกราฟเดียวต่อเขต
+// รายชื่อ "ทีมงาน" คงที่ 8 ทีม (หน่วยงาน x เขต) ที่ต้องการแสดงเสมอ เรียงตามลำดับนี้ตายตัว
+// งานโยธา จะรวมทุกชุดปฏิบัติงานย่อย (ชุดซ่อมปะถนน/ชุด JCB/ชุดตัดหญ้า/อื่น ๆ) เข้าเป็นกราฟเดียวต่อเขต
+// งานไฟฟ้า มีเพียง 2 เขต (เขต 1, เขต 2)
 const FIXED_TEAMS = [
     { department: 'งานโยธา', zone: 'เขต 1' },
     { department: 'งานโยธา', zone: 'เขต 2' },
     { department: 'งานโยธา', zone: 'เขต 3' },
+    { department: 'งานไฟฟ้า', zone: 'เขต 1' },
+    { department: 'งานไฟฟ้า', zone: 'เขต 2' },
     { department: 'ฝ่ายแผน', zone: 'เขต 1' },
     { department: 'ฝ่ายแผน', zone: 'เขต 2' },
     { department: 'ฝ่ายแผน', zone: 'เขต 3' }
@@ -957,7 +978,7 @@ function drawPlanningTopicChart(counts, total) {
     `).join('');
 }
 
-// วาดกราฟวงกลม (โดนัท) แสดงสัดส่วนชุดปฏิบัติงานย่อยของงานโยธา (ชุดซ่อมปะถนน/ชุด JCB/ชุดตัดหญ้า/ชุดไฟฟ้า)
+// วาดกราฟวงกลม (โดนัท) แสดงสัดส่วนชุดปฏิบัติงานย่อยของงานโยธา (ชุดซ่อมปะถนน/ชุด JCB/ชุดตัดหญ้า)
 // พร้อมคำอธิบายสัญลักษณ์ (legend) บอกจำนวนแต่ละชุดกำกับไว้ข้าง ๆ (โครงสร้างเดียวกับ drawPlanningTopicChart)
 function drawSubDeptChart(counts, total) {
     const chartEl = document.getElementById('team-subdept-chart');
@@ -1142,7 +1163,7 @@ function renderTeamDetailList() {
     pageJobs.forEach(c => {
         const st = STATUS_CONFIG[c.status];
         const dObj = new Date(c.startDate);
-        const dStr = !isNaN(dObj) ? dObj.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' }) : c.startDate;
+        const dStr = !isNaN(dObj) ? formatThaiDate(dObj, 'short') : c.startDate;
 
         const cAfterArr = normalizeImgArray(c.afterImgs, c.afterImg);
         const cBeforeArr = normalizeImgArray(c.beforeImgs, c.beforeImg);
@@ -1203,6 +1224,33 @@ function closeTeamDetail() {
         container.querySelectorAll('.border-brand').forEach(el => {
             el.className = el.className.replace('border-brand shadow-md ring-2 ring-brand/20', 'border-gray-100 hover:border-brand/40 hover:shadow-sm');
         });
+    }
+}
+
+// Update zone options dynamically based on selected department
+function updateZoneOptions(zones) {
+    const zoneSelect = document.getElementById('f-zone');
+    const currentValue = zoneSelect.value;
+    
+    // Clear existing options except the placeholder
+    const options = zoneSelect.querySelectorAll('option');
+    options.forEach((opt, idx) => {
+        if (idx > 0) opt.remove(); // Keep only first option (placeholder)
+    });
+    
+    // Add new zone options
+    zones.forEach(zone => {
+        const option = document.createElement('option');
+        option.value = zone;
+        option.textContent = zone;
+        zoneSelect.appendChild(option);
+    });
+    
+    // Reset value if it's no longer in the available options
+    if (!zones.includes(currentValue)) {
+        zoneSelect.value = '';
+    } else {
+        zoneSelect.value = currentValue;
     }
 }
 
@@ -1332,10 +1380,16 @@ function setupEventListeners() {
     }
 
     // Show/hide sub-department when department is selected
+    // Also update zone options based on selected department
     deptSelect.addEventListener('change', (e) => {
-        if (e.target.value === 'งานโยธา') {
+        const selectedDept = e.target.value;
+        const zoneSelect = document.getElementById('f-zone');
+        
+        if (selectedDept === 'งานโยธา') {
             subDeptContainer.classList.remove('hidden');
             subDeptSelect.setAttribute('required', 'true');
+            // Show all 3 zones for Civil Works
+            updateZoneOptions(['เขต 1', 'เขต 2', 'เขต 3']);
         } else {
             subDeptContainer.classList.add('hidden');
             subDeptSelect.removeAttribute('required');
@@ -1343,13 +1397,20 @@ function setupEventListeners() {
         }
 
         // Show/hide planning division complaint topic (only for ฝ่ายแผน)
-        if (e.target.value === 'ฝ่ายแผน') {
+        if (selectedDept === 'ฝ่ายแผน') {
             planningTopicContainer.classList.remove('hidden');
             planningTopicSelect.setAttribute('required', 'true');
+            // Show all 3 zones for Planning Division
+            updateZoneOptions(['เขต 1', 'เขต 2', 'เขต 3']);
         } else {
             planningTopicContainer.classList.add('hidden');
             planningTopicSelect.removeAttribute('required');
             planningTopicSelect.value = '';
+        }
+
+        // Show only 2 zones for Electrical Work (งานไฟฟ้า)
+        if (selectedDept === 'งานไฟฟ้า') {
+            updateZoneOptions(['เขต 1', 'เขต 2']);
         }
 
         // เปลี่ยนหน่วยงานแล้วค่า "อื่น ๆ" เดิมอาจถูกล้างไป ต้องอัปเดตสถานะหมายเหตุใหม่ทุกครั้ง
