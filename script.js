@@ -790,6 +790,25 @@ const PLANNING_TOPICS = [
     { value: 'อื่น ๆ', label: 'อื่น ๆ', color: '#94a3b8' }
 ];
 
+// ข้อมูลการแสดงผลของแต่ละหน่วยงาน (ไอคอน + โทนสี) ใช้จัดกลุ่มกราฟในหน้าภาระงานทีมงานให้ดูเป็นระเบียบและแยกหมวดชัดเจน
+const DEPARTMENT_META = {
+    'งานโยธา': {
+        icon: 'hard-hat',
+        chipBg: 'bg-orange-100', chipText: 'text-orange-700',
+        cardBorder: 'border-orange-100', cardBorderHover: 'hover:border-orange-300'
+    },
+    'งานไฟฟ้า': {
+        icon: 'zap',
+        chipBg: 'bg-amber-100', chipText: 'text-amber-700',
+        cardBorder: 'border-amber-100', cardBorderHover: 'hover:border-amber-300'
+    },
+    'ฝ่ายแผน': {
+        icon: 'clipboard-list',
+        chipBg: 'bg-blue-100', chipText: 'text-blue-700',
+        cardBorder: 'border-blue-100', cardBorderHover: 'hover:border-blue-300'
+    }
+};
+
 // รายชื่อ "ทีมงาน" คงที่ 8 ทีม (หน่วยงาน x เขต) ที่ต้องการแสดงเสมอ เรียงตามลำดับนี้ตายตัว
 // งานโยธา จะรวมทุกชุดปฏิบัติงานย่อย (ชุดซ่อมปะถนน/ชุด JCB/ชุดตัดหญ้า/อื่น ๆ) เข้าเป็นกราฟเดียวต่อเขต
 // งานไฟฟ้า มีเพียง 2 เขต (เขต 1, เขต 2)
@@ -804,16 +823,16 @@ const FIXED_TEAMS = [
     { department: 'ฝ่ายแผน', zone: 'เขต 3' }
 ];
 
-// สรุปภาระงานคงค้าง แยกเป็น 6 กราฟตายตัวตาม FIXED_TEAMS (งานโยธา เขต 1-3, ฝ่ายแผน เขต 1-3)
+// สรุปภาระงานคงค้าง แยกเป็นหมวดตามหน่วยงาน (งานโยธา / งานไฟฟ้า / ฝ่ายแผน) แต่ละหมวดมีกราฟตามเขตพื้นที่เรียงลำดับตายตัวตาม FIXED_TEAMS
 // แสดงเป็นกราฟวงกลม (โดนัท) ของแต่ละทีม คลิกวงไหนจะเปิดรายการงานของทีมนั้นด้านล่างทันที
 // ใช้ข้อมูลทั้งหมดเสมอ (ไม่ผูกกับตัวกรองค้นหา/สถานะด้านบน) เพื่อให้เห็นภาพรวมทุกทีมพร้อมกันในจุดเดียว
-// แสดงครบทั้ง 6 กราฟเสมอ แม้ทีมนั้นจะยังไม่มีคำร้องเลยก็ตาม (จะขึ้นเป็นวงกลม 0)
+// แสดงครบทุกกราฟเสมอ แม้ทีมนั้นจะยังไม่มีคำร้องเลยก็ตาม (จะขึ้นเป็นวงกลม 0)
 function renderTeamBreakdown() {
     const container = document.getElementById('team-breakdown');
     if (!container) return;
     container.innerHTML = '';
 
-    // ตั้งต้นกลุ่มคงที่ 6 กลุ่มไว้ก่อนเป็น 0 ทั้งหมด
+    // ตั้งต้นกลุ่มคงที่ 8 กลุ่มไว้ก่อนเป็น 0 ทั้งหมด
     const groups = {};
     FIXED_TEAMS.forEach(({ department, zone }) => {
         const key = `${department}|${zone}`;
@@ -824,7 +843,7 @@ function renderTeamBreakdown() {
     complaints.forEach(c => {
         const key = `${c.department}|${c.zone}`;
         const g = groups[key];
-        if (!g) return; // ข้ามคำร้องที่หน่วยงาน/เขตไม่ตรงกับ 6 ทีมงานหลัก (เช่น ข้อมูลเก่าที่ผิดรูปแบบ)
+        if (!g) return; // ข้ามคำร้องที่หน่วยงาน/เขตไม่ตรงกับทีมงานหลัก (เช่น ข้อมูลเก่าที่ผิดรูปแบบ)
         g.total++;
         if (c.status === 'ยังไม่เริ่ม') g.pending++;
         else if (c.status === 'กำลังดำเนินการ') g.progress++;
@@ -832,35 +851,77 @@ function renderTeamBreakdown() {
     });
     teamGroupsCache = groups;
 
-    container.className = "grid grid-cols-2 sm:grid-cols-3 gap-4";
+    container.className = "space-y-8";
 
-    FIXED_TEAMS.forEach(({ department, zone }) => {
-        const key = `${department}|${zone}`;
-        const g = groups[key];
-        // งานไฟฟ้า: ชื่อเขตมีคำว่า "ไฟฟ้า" อยู่แล้ว จึงใช้เขตเป็นป้ายชื่อตรง ๆ ไม่ต้องซ้ำชื่อหน่วยงาน
-        const label = department === 'งานไฟฟ้า' ? zone : (zone ? `${department} - ${zone}` : department);
-
-        const card = document.createElement('div');
-        card.className = "flex flex-col items-center gap-2 p-4 rounded-2xl border-2 transition-all cursor-pointer bg-white " +
-            (key === selectedTeamKey ? "border-brand shadow-md ring-2 ring-brand/20" : "border-gray-100 hover:border-brand/40 hover:shadow-sm");
-        card.onclick = () => showTeamDetail(key, label);
-
-        const donutWrap = document.createElement('div');
-        donutWrap.className = "relative w-24 h-24 flex-shrink-0";
-        card.appendChild(donutWrap);
-
-        drawMiniDonut(donutWrap, g);
-
-        const textWrap = document.createElement('div');
-        textWrap.className = "text-center";
-        textWrap.innerHTML = `
-            <p class="text-xs font-bold text-gray-700 leading-snug">${escapeHtml(label)}</p>
-            <p class="text-[11px] font-semibold text-gray-400 mt-0.5">รวม ${g.total} งาน</p>
-        `;
-        card.appendChild(textWrap);
-
-        container.appendChild(card);
+    // จัดกลุ่ม FIXED_TEAMS ตามหน่วยงาน โดยคงลำดับเดิมไว้เป๊ะ ๆ (งานโยธา เขต 1→3, งานไฟฟ้า เขต 1→2, ฝ่ายแผน เขต 1→3)
+    const deptOrder = [];
+    const deptTeams = {};
+    FIXED_TEAMS.forEach(team => {
+        if (!deptTeams[team.department]) {
+            deptTeams[team.department] = [];
+            deptOrder.push(team.department);
+        }
+        deptTeams[team.department].push(team);
     });
+
+    deptOrder.forEach((department, sectionIdx) => {
+        const meta = DEPARTMENT_META[department] || { icon: 'folder', chipBg: 'bg-gray-100', chipText: 'text-gray-700', cardBorder: 'border-gray-100', cardBorderHover: 'hover:border-gray-300' };
+        const teams = deptTeams[department];
+        const deptTotal = teams.reduce((sum, { zone }) => sum + (groups[`${department}|${zone}`]?.total || 0), 0);
+
+        // หัวข้อของแต่ละหมวดหน่วยงาน พร้อมไอคอนสีประจำหน่วยงาน และยอดรวมกำกับไว้ท้ายหัวข้อ
+        const section = document.createElement('div');
+        section.className = sectionIdx > 0 ? "pt-8 border-t border-gray-100" : "";
+        section.innerHTML = `
+            <div class="flex items-center gap-2.5 mb-4">
+                <span class="w-9 h-9 rounded-xl flex items-center justify-center ${meta.chipBg} ${meta.chipText} flex-shrink-0">
+                    <i data-lucide="${meta.icon}" class="w-4 h-4"></i>
+                </span>
+                <h4 class="font-bold text-gray-800 text-sm md:text-base">${escapeHtml(department)}</h4>
+                <span class="ml-auto text-[11px] font-bold ${meta.chipText} ${meta.chipBg} px-2.5 py-1 rounded-full">รวม ${deptTotal} งาน</span>
+            </div>
+        `;
+
+        const grid = document.createElement('div');
+        grid.className = "flex flex-wrap justify-center sm:justify-start gap-4";
+
+        // เขตต่าง ๆ ของหน่วยงานนี้ เรียงตามลำดับใน FIXED_TEAMS เสมอ (เขต 1 → 2 → 3)
+        teams.forEach(({ zone }) => {
+            const key = `${department}|${zone}`;
+            const g = groups[key];
+            // งานไฟฟ้า: ชื่อเขตมีคำว่า "ไฟฟ้า" อยู่แล้ว จึงใช้เขตเป็นป้ายชื่อตรง ๆ ไม่ต้องซ้ำชื่อหน่วยงาน
+            const detailLabel = department === 'งานไฟฟ้า' ? zone : (zone ? `${department} - ${zone}` : department);
+            // ป้ายบนการ์ด: ตัดคำว่า "ไฟฟ้า" ออก เพราะหัวข้อหมวดด้านบนบอกชื่อหน่วยงานอยู่แล้ว ไม่ต้องซ้ำ
+            const cardLabel = department === 'งานไฟฟ้า' ? zone.replace(' - ไฟฟ้า', '') : (zone || department);
+            const isSelected = key === selectedTeamKey;
+
+            const card = document.createElement('div');
+            card.className = "flex flex-col items-center gap-2 p-4 rounded-2xl border-2 transition-all cursor-pointer bg-white w-[136px] flex-shrink-0 " +
+                (isSelected ? "border-brand shadow-md ring-2 ring-brand/20" : `${meta.cardBorder} ${meta.cardBorderHover} hover:shadow-sm`);
+            card.onclick = () => showTeamDetail(key, detailLabel);
+
+            const donutWrap = document.createElement('div');
+            donutWrap.className = "relative w-24 h-24 flex-shrink-0";
+            card.appendChild(donutWrap);
+
+            drawMiniDonut(donutWrap, g);
+
+            const textWrap = document.createElement('div');
+            textWrap.className = "text-center";
+            textWrap.innerHTML = `
+                <p class="text-xs font-bold text-gray-700 leading-snug">${escapeHtml(cardLabel)}</p>
+                <p class="text-[11px] font-semibold text-gray-400 mt-0.5">รวม ${g.total} งาน</p>
+            `;
+            card.appendChild(textWrap);
+
+            grid.appendChild(card);
+        });
+
+        section.appendChild(grid);
+        container.appendChild(section);
+    });
+
+    lucide.createIcons({ root: container });
 
     // ถ้ากำลังเปิดดูรายการงานของทีมใดอยู่ ให้รีเฟรชรายการนั้นตามข้อมูลล่าสุดด้วย (เผื่อมีการเพิ่ม/แก้ไข/ลบระหว่างเปิดดูอยู่)
     if (selectedTeamKey) {
