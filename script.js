@@ -31,7 +31,7 @@ function normalizeImgArray(arrField, legacyField) {
 const MOCK_DATA = [
     {
         id: 1, title: "ไฟฟ้าส่องว่างสาธารณะดับตลอดเส้นทาง", receiveNo: "125/2569", requester: "นางมาลี รักดี",
-        supervisor: "นายวิทยา สุขใจ", department: "งานไฟฟ้า", subDepartment: "", zone: "เขต 2",
+        supervisor: "นายวิทยา สุขใจ", department: "งานไฟฟ้า", subDepartment: "", zone: "เขต 2 - ไฟฟ้า",
         startDate: "2026-07-10", contactType: "เบอร์โทรศัพท์", contactInfo: "0811112222",
         status: "กำลังดำเนินการ", note: "รอประสานงานการไฟฟ้า", completedDate: "",
         beforeImg: "https://images.unsplash.com/photo-1517420879524-86d64ac2f339?auto=format&fit=crop&w=600&q=80", afterImg: ""
@@ -797,8 +797,8 @@ const FIXED_TEAMS = [
     { department: 'งานโยธา', zone: 'เขต 1' },
     { department: 'งานโยธา', zone: 'เขต 2' },
     { department: 'งานโยธา', zone: 'เขต 3' },
-    { department: 'งานไฟฟ้า', zone: 'เขต 1' },
-    { department: 'งานไฟฟ้า', zone: 'เขต 2' },
+    { department: 'งานไฟฟ้า', zone: 'เขต 1 - ไฟฟ้า' },
+    { department: 'งานไฟฟ้า', zone: 'เขต 2 - ไฟฟ้า' },
     { department: 'ฝ่ายแผน', zone: 'เขต 1' },
     { department: 'ฝ่ายแผน', zone: 'เขต 2' },
     { department: 'ฝ่ายแผน', zone: 'เขต 3' }
@@ -837,7 +837,8 @@ function renderTeamBreakdown() {
     FIXED_TEAMS.forEach(({ department, zone }) => {
         const key = `${department}|${zone}`;
         const g = groups[key];
-        const label = zone ? `${department} - ${zone}` : department;
+        // งานไฟฟ้า: ชื่อเขตมีคำว่า "ไฟฟ้า" อยู่แล้ว จึงใช้เขตเป็นป้ายชื่อตรง ๆ ไม่ต้องซ้ำชื่อหน่วยงาน
+        const label = department === 'งานไฟฟ้า' ? zone : (zone ? `${department} - ${zone}` : department);
 
         const card = document.createElement('div');
         card.className = "flex flex-col items-center gap-2 p-4 rounded-2xl border-2 transition-all cursor-pointer bg-white " +
@@ -1408,9 +1409,9 @@ function setupEventListeners() {
             planningTopicSelect.value = '';
         }
 
-        // Show only 2 zones for Electrical Work (งานไฟฟ้า)
+        // Show only 2 zones for Electrical Work (งานไฟฟ้า) แยกชื่อเขตให้ชัดเจนไม่ปนกับหน่วยงานอื่น
         if (selectedDept === 'งานไฟฟ้า') {
-            updateZoneOptions(['เขต 1', 'เขต 2']);
+            updateZoneOptions(['เขต 1 - ไฟฟ้า', 'เขต 2 - ไฟฟ้า']);
         }
 
         // เปลี่ยนหน่วยงานแล้วค่า "อื่น ๆ" เดิมอาจถูกล้างไป ต้องอัปเดตสถานะหมายเหตุใหม่ทุกครั้ง
