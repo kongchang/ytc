@@ -440,29 +440,29 @@
                         <i data-lucide="file-edit" class="w-6 h-6 text-brand"></i> บันทึกข้อมูลคำร้อง
                     </h3>
 
-                    <form id="complaint-form" class="space-y-6">
+                    <form id="complaint-form" class="space-y-6" autocomplete="off">
                         <input type="hidden" id="entry-id">
                         
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div>
                                 <label class="block text-xs font-bold text-gray-700 uppercase mb-2">ชื่อเรื่อง <span class="text-red-500">*</span></label>
-                                <input type="text" id="f-title" required class="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-brand bg-brand-bg/30 text-sm outline-none font-medium" placeholder="เช่น ถนนชำรุด, ไฟฟ้าดับ, ท่อตัน">
+                                <input type="text" id="f-title" required autocomplete="off" class="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-brand bg-brand-bg/30 text-sm outline-none font-medium" placeholder="เช่น ถนนชำรุด, ไฟฟ้าดับ, ท่อตัน">
                             </div>
                             <div>
                                 <label class="block text-xs font-bold text-gray-700 uppercase mb-2">เลขรับ</label>
-                                <input type="text" id="f-receiveNo" class="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-brand bg-brand-bg/30 text-sm outline-none font-medium" placeholder="ระบุเลขรับ (ถ้ามี)">
+                                <input type="text" id="f-receiveNo" autocomplete="off" class="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-brand bg-brand-bg/30 text-sm outline-none font-medium" placeholder="ระบุเลขรับ (ถ้ามี)">
                             </div>
                         </div>
 
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div id="requester-field-wrap">
                                 <label class="block text-xs font-bold text-gray-700 uppercase mb-2">ชื่อผู้ร้องเรียน / ผู้แจ้ง <span class="text-red-500">*</span></label>
-                                <input type="text" id="f-requester" required class="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-brand bg-brand-bg/30 text-sm outline-none font-medium">
+                                <input type="text" id="f-requester" required autocomplete="off" class="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-brand bg-brand-bg/30 text-sm outline-none font-medium">
                             </div>
                             <div id="supervisor-slot-top">
                                 <div id="supervisor-field-wrap">
                                     <label class="block text-xs font-bold text-gray-700 uppercase mb-2">ผู้ดูแลงาน <span class="text-red-500">*</span></label>
-                                    <input type="text" id="f-supervisor" required class="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-brand bg-brand-bg/30 text-sm outline-none font-medium">
+                                    <input type="text" id="f-supervisor" required autocomplete="off" class="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-brand bg-brand-bg/30 text-sm outline-none font-medium">
                                 </div>
                             </div>
                         </div>
@@ -498,7 +498,7 @@
                             </div>
                             <div id="other-work-notes-container" class="hidden bg-blue-50/50 p-5 rounded-xl border border-blue-100">
                                 <label class="block text-xs font-bold text-blue-700 uppercase mb-2">โปรดระบุชุดปฏิบัติงานหรืองานร้องเรียนอื่น ๆ <span class="text-red-500">*</span></label>
-                                <input type="text" id="f-otherWorkNotes" class="w-full px-4 py-3 rounded-xl border border-blue-200 focus:ring-2 focus:ring-blue-400 bg-white text-sm outline-none font-medium" placeholder="เช่น ซ่อมท่อน้ำ, การจัดการขยะ, อื่น ๆ">
+                                <input type="text" id="f-otherWorkNotes" autocomplete="off" class="w-full px-4 py-3 rounded-xl border border-blue-200 focus:ring-2 focus:ring-blue-400 bg-white text-sm outline-none font-medium" placeholder="เช่น ซ่อมท่อน้ำ, การจัดการขยะ, อื่น ๆ">
                             </div>
                         </div>
 
@@ -530,7 +530,7 @@
                             </div>
                             <div>
                                 <label id="label-contactInfo" class="block text-xs font-bold text-gray-700 uppercase mb-2">ระบุข้อมูลติดต่อ <span class="text-red-500">*</span></label>
-                                <input type="text" id="f-contactInfo" required class="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-brand bg-white text-sm outline-none font-medium" placeholder="เช่น 0812345678">
+                                <input type="text" id="f-contactInfo" required autocomplete="off" class="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-brand bg-white text-sm outline-none font-medium" placeholder="เช่น 0812345678">
                             </div>
                         </div>
 
@@ -574,7 +574,7 @@
                             <!-- Note (If not started/progress) -->
                             <div id="note-container" class="bg-red-50/50 p-5 rounded-xl border border-red-100 fade-in">
                                 <label class="block text-xs font-bold text-red-700 uppercase mb-2">หมายเหตุ (อุปสรรค / สาเหตุที่ยังไม่สามารถดำเนินการ) <span id="note-required-mark" class="text-red-500 hidden">*</span></label>
-                                <textarea id="f-note" rows="2" class="w-full px-4 py-3 rounded-xl border border-red-200 focus:ring-2 focus:ring-red-400 bg-white text-sm outline-none font-medium" placeholder="เช่น รอเบิกวัสดุ, ติดภารกิจอื่น..."></textarea>
+                                <textarea id="f-note" rows="2" autocomplete="off" class="w-full px-4 py-3 rounded-xl border border-red-200 focus:ring-2 focus:ring-red-400 bg-white text-sm outline-none font-medium" placeholder="เช่น รอเบิกวัสดุ, ติดภารกิจอื่น..."></textarea>
                             </div>
 
                             <!-- Finished Details (If finished) -->
