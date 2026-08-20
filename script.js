@@ -1,1754 +1,656 @@
-// Data & State Management
-const STATUS_CONFIG = {
-    'ยังไม่เริ่ม': { color: 'text-red-600', bg: 'bg-red-100', border: 'border-red-200' },
-    'กำลังดำเนินการ': { color: 'text-yellow-600', bg: 'bg-yellow-100', border: 'border-yellow-200' },
-    'เสร็จสมบูรณ์แล้ว': { color: 'text-emerald-600', bg: 'bg-emerald-100', border: 'border-emerald-200' }
-};
+// ============================================================
+// ระบบติดตามแฟ้มเอกสาร — app logic (Firebase Firestore backend)
+// ============================================================
 
-let complaints = [];
-let currentFilter = 'ทั้งหมด';
-let timeFilterVal = 'ทั้งหมด';
-let actionCallback = null; // For confirm modal
-let currentPage = 1; // สำหรับแบ่งหน้ารายการคำร้อง
-const ITEMS_PER_PAGE = 9; // จำนวนการ์ดต่อหน้า
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js";
+import {
+  getFirestore, collection, addDoc, updateDoc, deleteDoc, doc,
+  onSnapshot, query, orderBy
+} from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
+import { firebaseConfig } from './firebase-config.js';
 
-// Firestore จำกัดขนาดเอกสารไว้ที่ 1MB ต่อรายการ — ตั้งงบไว้ที่ 900KB เผื่อระยะปลอดภัย (ใช้ทั้งตอนแสดงมิเตอร์และตอนบันทึกจริง)
-const FIRESTORE_DOC_SIZE_BUDGET = 900 * 1024;
+const CHECK_SVG = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M13.5 4L6 11.5L2.5 8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
-// เก็บรูปภาพที่แนบในฟอร์ม (รองรับหลายรูปต่อหัวข้อ) ระหว่างกรอกฟอร์ม
-let currentImages = { form: [], before: [], after: [] };
+// ---------- Elements ----------
+const navBtns = document.querySelectorAll('.nav-btn');
+const pages = document.querySelectorAll('.page');
 
-// แปลงข้อมูลเก่า (เก็บเป็นรูปเดียว เช่น beforeImg เป็น string) ให้เป็น array เสมอ
-// เพื่อให้ข้อมูลเก่าที่เคยบันทึกไว้ยังแสดงผลได้ปกติ ควบคู่กับข้อมูลใหม่ที่เก็บได้หลายรูป
-function normalizeImgArray(arrField, legacyField) {
-    if (Array.isArray(arrField)) return arrField.slice();
-    if (Array.isArray(legacyField)) return legacyField.slice();
-    if (legacyField) return [legacyField];
-    return [];
+const form = document.getElementById('addFileForm');
+const titleInput = document.getElementById('titleInput');
+const descInput = document.getElementById('descInput');
+const photoInput = document.getElementById('photoInput');
+const photoUploadBox = document.getElementById('photoUploadBox');
+const photoPreview = document.getElementById('photoPreview');
+const previewImg = document.getElementById('previewImg');
+const previewName = document.getElementById('previewName');
+const removePhotoBtn = document.getElementById('removePhotoBtn');
+const submitBtn = document.getElementById('submitBtn');
+
+const fileList = document.getElementById('fileList');
+const emptyState = document.getElementById('emptyState');
+const emptyTitle = document.getElementById('emptyTitle');
+const emptyText = document.getElementById('emptyText');
+
+const statTotal = document.getElementById('statTotal');
+const statPending = document.getElementById('statPending');
+const statDone = document.getElementById('statDone');
+const countAll = document.getElementById('countAll');
+const countPending = document.getElementById('countPending');
+const countDone = document.getElementById('countDone');
+
+const filterTabs = document.querySelectorAll('.filter-tab');
+const searchInput = document.getElementById('searchInput');
+const searchClearBtn = document.getElementById('searchClearBtn');
+const pagination = document.getElementById('pagination');
+const lightbox = document.getElementById('lightbox');
+const lightboxImg = document.getElementById('lightboxImg');
+const lightboxClose = document.getElementById('lightboxClose');
+const connStatus = document.getElementById('connStatus');
+
+// ---------- State ----------
+let state = { entries: [] };
+let seqMap = new Map(); // id -> running number, computed each render from createdAt order
+let currentFilter = 'all';
+let searchQuery = '';
+let currentPage = 1;
+const PAGE_SIZE = 6;
+let pendingPhoto = null;
+let pendingPhotoFile = null;
+let editingDateFor = null; // { id, type } เช่น { id: 'e123', type: 'sent' }
+
+// ============ Connection status banner ============
+function showConnMessage(msg, isError) {
+  connStatus.textContent = msg;
+  connStatus.hidden = false;
+  connStatus.classList.toggle('error', !!isError);
+}
+function hideConnMessage() {
+  connStatus.hidden = true;
 }
 
-// Sample Mock Data (Loaded if localStorage is empty)
-const MOCK_DATA = [
-    {
-        id: 1, title: "ไฟฟ้าส่องว่างสาธารณะดับตลอดเส้นทาง", receiveNo: "125/2569", requester: "นางมาลี รักดี",
-        supervisor: "นายวิทยา สุขใจ", department: "งานไฟฟ้า", subDepartment: "", zone: "เขต 2 - ไฟฟ้า",
-        startDate: "2026-07-10", contactType: "เบอร์โทรศัพท์", contactInfo: "0811112222",
-        status: "กำลังดำเนินการ", note: "รอประสานงานการไฟฟ้า", completedDate: "",
-        beforeImg: "https://images.unsplash.com/photo-1517420879524-86d64ac2f339?auto=format&fit=crop&w=600&q=80", afterImg: ""
-    },
-    {
-        id: 2, title: "ถนนชำรุดเป็นหลุมบ่อขนาดใหญ่เป็นระยะทางยาว", receiveNo: "126/2569", requester: "นายสมศักดิ์ ใจดี",
-        supervisor: "นายวิทยา สุขใจ", department: "งานโยธา", subDepartment: "ชุดซ่อมปะถนน", zone: "เขต 2",
-        startDate: "2026-06-28", contactType: "เบอร์โทรศัพท์", contactInfo: "0822223333",
-        status: "เสร็จสมบูรณ์แล้ว", note: "", completedDate: "2026-07-01",
-        beforeImg: "https://images.unsplash.com/photo-1515162816999-a0c47dc192f7?auto=format&fit=crop&w=600&q=80",
-        afterImg: "https://images.unsplash.com/photo-1542273917363-3b1817f69a2d?auto=format&fit=crop&w=600&q=80"
-    }
-];
+// ============ Firebase setup ============
+let db = null;
+let entriesCol = null;
 
-const SESSION_KEY = 'sateangnok_session';
+if (firebaseConfig.apiKey === 'YOUR_API_KEY') {
+  showConnMessage('⚠️ ยังไม่ได้ตั้งค่า Firebase — แก้ไขไฟล์ firebase-config.js ด้วยค่าโปรเจกต์ของคุณ แล้วรีเฟรชหน้านี้', true);
+} else {
+  try {
+    const app = initializeApp(firebaseConfig);
+    db = getFirestore(app);
+    entriesCol = collection(db, 'entries');
+    const entriesQuery = query(entriesCol, orderBy('createdAt', 'desc'));
 
-// ป้องกัน XSS: แปลงอักขระที่มีความหมายพิเศษใน HTML ให้เป็นข้อความธรรมดา
-// ใช้ทุกจุดที่เอาข้อมูลจากฐานข้อมูล (ซึ่งอาจถูกแก้ไขโดยไม่ผ่านฟอร์มของเราก็ได้) ไปแปะผ่าน innerHTML
-function escapeHtml(str) {
-    if (str === null || str === undefined) return '';
-    return String(str)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
-}
-
-// ตรวจสอบว่า src ของรูปภาพเป็น data URL รูปภาพ หรือลิงก์ http(s) เท่านั้น
-// ป้องกันไม่ให้ค่าที่แปลกปลอมกลายเป็นช่องทางโจมตี (เช่น javascript: URIs หรือ attribute injection)
-function safeImageSrc(src) {
-    if (typeof src !== 'string') return 'https://placehold.co/600x400/eeeeee/999999?text=ไม่มีรูปภาพ';
-    if (/^data:image\//i.test(src) || /^https?:\/\//i.test(src)) return src;
-    return 'https://placehold.co/600x400/eeeeee/999999?text=ไม่มีรูปภาพ';
-}
-
-// จัดรูปแบบวันที่เป็นภาษาไทยโดยแสดงปีพ.ศ. (Buddhist Era)
-// พ.ศ. = ค.ศ. + 543
-function formatThaiDate(dateObj, format = 'short') {
-    if (isNaN(dateObj)) return '';
-    
-    const monthsShort = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
-    const monthsLong = ['มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน', 'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'];
-    
-    const day = dateObj.getDate();
-    const month = dateObj.getMonth();
-    const year = dateObj.getFullYear() + 543; // แปลงเป็น พ.ศ.
-    
-    if (format === 'long') {
-        return `${day} ${monthsLong[month]} ${year}`;
-    } else {
-        return `${day} ${monthsShort[month]} ${year}`;
-    }
-}
-
-// Initialize icons on load
-document.addEventListener('DOMContentLoaded', () => {
-    lucide.createIcons();
-    setupEventListeners();
-
-    // ตัวเดียวที่ตัดสินว่า "ล็อกอินแล้วจริงหรือไม่" คือ Firebase Authentication
-    // (localStorage ด้านบนใช้แค่กันหน้าจอกระพริบตอนกด F5 เท่านั้น ไม่ใช่ตัวป้องกันความปลอดภัยจริง)
-    auth.onAuthStateChanged((user) => {
-        if (user) {
-            localStorage.setItem(SESSION_KEY, 'active'); // ใช้เพื่อ anti-flash เท่านั้น
-            document.documentElement.classList.add('has-session');
-            document.getElementById('login-view').classList.add('hidden');
-            const appLayout = document.getElementById('app-layout');
-            appLayout.classList.remove('hidden');
-            navigate('dashboard');
-            lucide.createIcons();
-            initFirestoreSync(); // เริ่มซิงก์ข้อมูลก็ต่อเมื่อยืนยันตัวตนสำเร็จแล้วเท่านั้น
-        } else {
-            stopFirestoreSync();
-            localStorage.removeItem(SESSION_KEY);
-            document.documentElement.classList.remove('has-session');
-            document.getElementById('app-layout').classList.add('hidden');
-            const login = document.getElementById('login-view');
-            login.classList.remove('hidden', 'opacity-0');
-        }
+    onSnapshot(entriesQuery, (snapshot) => {
+      state.entries = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+      hideConnMessage();
+      render();
+    }, (err) => {
+      console.error('Firestore sync error:', err);
+      showConnMessage('⚠️ เชื่อมต่อ Firestore ไม่สำเร็จ — ตรวจสอบ Firestore Rules และการตั้งค่าโปรเจกต์', true);
     });
+  } catch (err) {
+    console.error('Firebase init error:', err);
+    showConnMessage('⚠️ ตั้งค่า Firebase ไม่ถูกต้อง — ตรวจสอบไฟล์ firebase-config.js', true);
+  }
+}
+
+// ============ Firestore write helpers ============
+async function addEntry(entryData) {
+  if (!entriesCol) {
+    showConnMessage('⚠️ ยังเชื่อมต่อ Firebase ไม่ได้ ตรวจสอบ firebase-config.js', true);
+    return false;
+  }
+  try {
+    await addDoc(entriesCol, entryData);
+    return true;
+  } catch (err) {
+    console.error('Add failed:', err);
+    showConnMessage('⚠️ บันทึกแฟ้มไม่สำเร็จ ลองใหม่อีกครั้ง', true);
+    return false;
+  }
+}
+
+async function updateEntry(id, patch) {
+  if (!db) return;
+  try {
+    await updateDoc(doc(db, 'entries', id), patch);
+  } catch (err) {
+    console.error('Update failed:', err);
+    showConnMessage('⚠️ อัปเดตสถานะไม่สำเร็จ ลองใหม่อีกครั้ง', true);
+  }
+}
+
+async function removeEntry(id) {
+  if (!db) return;
+  try {
+    await deleteDoc(doc(db, 'entries', id));
+  } catch (err) {
+    console.error('Delete failed:', err);
+    showConnMessage('⚠️ ลบแฟ้มไม่สำเร็จ ลองใหม่อีกครั้ง', true);
+  }
+}
+
+// ============ Navigation ============
+navBtns.forEach(btn => {
+  btn.addEventListener('click', () => {
+    const pageId = btn.dataset.page + '-page';
+    switchPage(pageId);
+    navBtns.forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+  });
 });
 
-// เชื่อมต่อและซิงก์ข้อมูล "คำร้อง" กับ Firestore แบบเรียลไทม์
-// ทุกคนที่เปิดเว็บนี้จะอ่าน/เขียนข้อมูลชุดเดียวกันจากฐานข้อมูลกลาง แทนที่จะแยกกันอยู่ใน localStorage ของแต่ละเครื่อง
-let firestoreUnsubscribe = null;
-function initFirestoreSync() {
-    if (firestoreUnsubscribe) return; // กันไม่ให้ผูก listener ซ้ำซ้อนหากล็อกอิน-ออกหลายรอบ
-
-    // เช็กให้แน่ใจว่า "เคยเซตข้อมูลตัวอย่างไปแล้วหรือยัง" ก่อนเริ่มฟังข้อมูลจริง
-    // เพื่อไม่ให้ข้อมูลตัวอย่างถูกใส่กลับเข้ามาซ้ำทุกครั้งที่ตารางว่าง (เช่น ตอนผู้ใช้ลบคำร้องทั้งหมดออกโดยตั้งใจ)
-    ensureMockDataSeededOnce().finally(() => {
-        firestoreUnsubscribe = db.collection('complaints').onSnapshot((snapshot) => {
-            // snapshot.empty ที่นี่แปลว่า "ไม่มีคำร้องตอนนี้จริง ๆ" (เช่น ผู้ใช้ลบออกหมด)
-            // ไม่ใช่สัญญาณให้ใส่ข้อมูลตัวอย่างกลับเข้ามาอีกต่อไป
-            complaints = snapshot.docs.map(doc => doc.data());
-            renderDashboard();
-            renderTeamBreakdown(); // อัปเดตสรุปภาระงานทีมงานเสมอ ไม่ว่าจะเปิดหน้านั้นอยู่หรือไม่
-        }, (err) => {
-            console.error('Firestore sync error:', err);
-            showToast('เชื่อมต่อฐานข้อมูลไม่สำเร็จ กรุณาตรวจสอบการตั้งค่า Firebase ใน firebase-config.js', 'error');
-        });
-    });
+function switchPage(pageId) {
+  pages.forEach(p => p.classList.remove('active'));
+  document.getElementById(pageId).classList.add('active');
 }
 
-function stopFirestoreSync() {
-    if (firestoreUnsubscribe) {
-        firestoreUnsubscribe();
-        firestoreUnsubscribe = null;
-    }
-    complaints = [];
-}
+// ============ Photo Upload ============
+photoUploadBox.addEventListener('click', () => photoInput.click());
 
-// ใส่ข้อมูลตัวอย่างเริ่มต้นให้ "ครั้งเดียวตลอดอายุฐานข้อมูล" เท่านั้น
-// อ่านสถานะจากเอกสาร meta/seedStatus แทนการดูว่า collection ว่างหรือไม่ (ซึ่งเปลี่ยนได้ตลอดจากการลบข้อมูลจริง)
-function ensureMockDataSeededOnce() {
-    const seedFlagRef = db.collection('meta').doc('seedStatus');
-    return seedFlagRef.get().then((flagDoc) => {
-        if (flagDoc.exists) return; // เคยเซตไปแล้ว (ไม่ว่าจะเคยลบข้อมูลจริงทิ้งไปแล้วหรือไม่ก็ตาม) ไม่ต้องทำซ้ำ
-
-        const batch = db.batch();
-        MOCK_DATA.forEach(item => {
-            batch.set(db.collection('complaints').doc(String(item.id)), item);
-        });
-        batch.set(seedFlagRef, { seededAt: new Date().toISOString() });
-        return batch.commit().catch(err => console.error('Seed data error:', err));
-    }).catch(err => {
-        console.error('Seed flag check error:', err);
-    });
-}
-
-// Custom Toast Notification (Replaces alert)
-function showToast(message, type = 'success') {
-    const container = document.getElementById('toast-container');
-    const toast = document.createElement('div');
-    
-    const isSuccess = type === 'success';
-    const bgColor = isSuccess ? 'bg-white' : 'bg-red-50';
-    const borderColor = isSuccess ? 'border-emerald-200' : 'border-red-200';
-    const iconColor = isSuccess ? 'text-emerald-500' : 'text-red-500';
-    const iconName = isSuccess ? 'check-circle-2' : 'alert-circle';
-    const textColor = isSuccess ? 'text-gray-800' : 'text-red-800';
-
-    toast.className = `flex items-center gap-3 px-5 py-4 rounded-2xl shadow-xl border ${borderColor} ${bgColor} toast-enter mb-2 pointer-events-auto`;
-    toast.innerHTML = `
-        <i data-lucide="${iconName}" class="w-6 h-6 ${iconColor} flex-shrink-0"></i>
-        <p class="text-sm font-bold ${textColor}">${message}</p>
-    `;
-    
-    container.appendChild(toast);
-    lucide.createIcons({ root: toast });
-
-    setTimeout(() => {
-        toast.classList.replace('toast-enter', 'toast-exit');
-        setTimeout(() => toast.remove(), 300);
-    }, 3000);
-}
-
-// Toggle Password Visibility (Login field)
-function togglePasswordVisibility() {
-    const input = document.getElementById('login-password');
-    const btn = document.getElementById('toggle-password-btn');
-    const isHidden = input.type === 'password';
-
-    input.type = isHidden ? 'text' : 'password';
-    btn.innerHTML = `<i id="toggle-password-icon" data-lucide="${isHidden ? 'eye-off' : 'eye'}" class="w-4 h-4"></i>`;
-    lucide.createIcons({ root: btn });
-}
-
-// Authentication ผ่าน Firebase Auth จริง (ตรวจสอบฝั่งเซิร์ฟเวอร์ ไม่ใช่แค่ใน JS ฝั่งเครื่อง)
-// ผู้ใช้ยังคงกรอก "ชื่อผู้ใช้งาน" แบบเดิมได้ตามปกติ โค้ดจะแปลงเป็นอีเมลภายในให้เอง
-// เพราะ Firebase Authentication (Email/Password) ต้องใช้รูปแบบอีเมลเป็นตัวระบุบัญชี
-const STAFF_EMAIL_DOMAIN = 'stnkongchang.local'; // ต้องตรงกับตอนสร้างผู้ใช้ในหน้า Firebase Console
-
-function usernameToEmail(username) {
-    return `${username.trim().toLowerCase()}@${STAFF_EMAIL_DOMAIN}`;
-}
-
-let loginInFlight = false;
-document.getElementById('login-form').addEventListener('submit', (e) => {
-    e.preventDefault();
-    if (loginInFlight) return;
-
-    const user = document.getElementById('login-username').value;
-    const pass = document.getElementById('login-password').value;
-    const submitBtn = e.target.querySelector('button[type="submit"]');
-
-    loginInFlight = true;
-    if (submitBtn) submitBtn.disabled = true;
-
-    auth.signInWithEmailAndPassword(usernameToEmail(user), pass)
-        .then(() => {
-            // onAuthStateChanged (ด้านบน) จะเป็นตัวจัดการเปลี่ยนหน้าจอเข้าสู่ dashboard ให้เอง
-            showToast('เข้าสู่ระบบสำเร็จ ยินดีต้อนรับ');
-        })
-        .catch((err) => {
-            console.error('Login error:', err.code);
-            // ข้อความเดียวกันทุกกรณี ไม่บอกว่า "ไม่มีบัญชีนี้" หรือ "รหัสผ่านผิด"
-            // เพื่อไม่ให้ผู้ไม่หวังดีใช้เดา (enumerate) ชื่อผู้ใช้งานที่มีอยู่จริงได้
-            showToast('ชื่อผู้ใช้งานหรือรหัสผ่านไม่ถูกต้อง!', 'error');
-        })
-        .finally(() => {
-            loginInFlight = false;
-            if (submitBtn) submitBtn.disabled = false;
-        });
+photoUploadBox.addEventListener('dragover', (e) => {
+  e.preventDefault();
+  photoUploadBox.style.background = '#f0f2f7';
 });
 
-function logout() {
-    auth.signOut(); // onAuthStateChanged จะเป็นตัวจัดการล้างหน้าจอกลับไปหน้า Login ให้เอง
-}
-
-// Navigation
-function navigate(viewName) {
-    document.getElementById('view-dashboard').classList.add('hidden');
-    document.getElementById('view-form').classList.add('hidden');
-    document.getElementById('view-team').classList.add('hidden');
-    
-    // reset nav styles
-    const inactiveNav = "w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all hover:bg-white/5 text-emerald-100 hover:text-white";
-    const activeNav = "w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all bg-emerald-900/60 shadow-inner";
-    document.getElementById('nav-dashboard').className = inactiveNav;
-    document.getElementById('nav-form').className = inactiveNav;
-    document.getElementById('nav-team').className = inactiveNav;
-
-    if (viewName === 'dashboard') {
-        document.getElementById('view-dashboard').classList.remove('hidden');
-        document.getElementById('nav-dashboard').className = activeNav;
-        renderDashboard();
-    } else if (viewName === 'form') {
-        document.getElementById('view-form').classList.remove('hidden');
-        document.getElementById('nav-form').className = activeNav;
-        window.scrollTo(0,0);
-    } else if (viewName === 'team') {
-        document.getElementById('view-team').classList.remove('hidden');
-        document.getElementById('nav-team').className = activeNav;
-        renderTeamBreakdown();
-        window.scrollTo(0,0);
-    }
-}
-
-function openForm(id = null) {
-    resetForm();
-    if (id) {
-        const item = complaints.find(c => c.id === id);
-        if (item) populateForm(item);
-        document.getElementById('form-title').innerHTML = `<i data-lucide="edit" class="w-6 h-6 text-brand"></i> แก้ไขข้อมูลคำร้อง (ID: ${id})`;
-    } else {
-        document.getElementById('form-title').innerHTML = `<i data-lucide="file-edit" class="w-6 h-6 text-brand"></i> บันทึกข้อมูลคำร้องใหม่`;
-    }
-    lucide.createIcons();
-    navigate('form');
-}
-
-// Confirm Modal
-function openConfirmModal(message, callback) {
-    document.getElementById('confirm-message').textContent = message;
-    document.getElementById('confirm-modal').classList.remove('hidden');
-    actionCallback = callback;
-}
-function closeConfirmModal() {
-    document.getElementById('confirm-modal').classList.add('hidden');
-    actionCallback = null;
-}
-document.getElementById('btn-confirm-action').addEventListener('click', () => {
-    if (actionCallback) actionCallback();
-    closeConfirmModal();
+photoUploadBox.addEventListener('dragleave', () => {
+  photoUploadBox.style.background = '';
 });
 
-// Image Viewer Lightbox
-function openImageViewer(src) {
-    if (!src || src.includes('placehold.co')) return;
-    document.getElementById('image-viewer-img').src = src;
-    document.getElementById('image-viewer-modal').classList.remove('hidden');
-}
-function closeImageViewer() {
-    document.getElementById('image-viewer-modal').classList.add('hidden');
-}
-
-// Detail Modal
-function viewDetail(id) {
-    const item = complaints.find(c => c.id === id);
-    if(!item) return;
-
-    const st = STATUS_CONFIG[item.status];
-    document.getElementById('dt-status').className = `inline-block px-3 py-1 rounded-full text-xs font-bold mb-3 ${st.bg} ${st.color}`;
-    document.getElementById('dt-status').textContent = item.status;
-    
-    document.getElementById('dt-title').textContent = item.title;
-    document.getElementById('dt-no').textContent = item.receiveNo ? `เลขรับ: ${item.receiveNo}` : 'ไม่มีเลขรับ';
-    
-    document.getElementById('dt-requester').textContent = item.requester;
-    document.getElementById('dt-contact').textContent = `${item.contactType}: ${item.contactInfo}`;
-    document.getElementById('dt-zone').textContent = item.zone;
-    document.getElementById('dt-dept').textContent = item.department + (item.subDepartment ? ` (${item.subDepartment})` : '');
-    document.getElementById('dt-supervisor').textContent = item.supervisor;
-    
-    // Format Thai Date with Buddhist Year (พ.ศ.)
-    const dObj = new Date(item.startDate);
-    document.getElementById('dt-date').textContent = !isNaN(dObj) ? formatThaiDate(dObj, 'short') : item.startDate;
-
-    // Planning Division Complaint Topic Section (only show for ฝ่ายแผน with planning topic)
-    const planningTopicSection = document.getElementById('dt-planning-topic-section');
-    if (item.planningTopic && item.department === 'ฝ่ายแผน') {
-        document.getElementById('dt-planningTopic').textContent = item.planningTopic || '-';
-        planningTopicSection.classList.remove('hidden');
-    } else {
-        planningTopicSection.classList.add('hidden');
-    }
-
-    // Other Work Notes Section (show when "อื่น ๆ" is selected in subDepartment or planningTopic)
-    const otherWorkNotesSection = document.getElementById('dt-other-work-notes-section');
-    if (item.otherWorkNotes) {
-        document.getElementById('dt-otherWorkNotes').textContent = item.otherWorkNotes;
-        otherWorkNotesSection.classList.remove('hidden');
-    } else {
-        otherWorkNotesSection.classList.add('hidden');
-    }
-
-    // Note Section
-    const noteEl = document.getElementById('dt-note-section');
-    if(item.status !== 'เสร็จสมบูรณ์แล้ว' && item.note) {
-        document.getElementById('dt-note').textContent = item.note;
-        noteEl.classList.remove('hidden');
-    } else {
-        noteEl.classList.add('hidden');
-    }
-
-    // Images Section
-    const formContainer = document.getElementById('dt-form-container');
-    const afterContainer = document.getElementById('dt-after-container');
-    const completeDate = document.getElementById('dt-completed-date');
-
-    const formArr = normalizeImgArray(item.formImgs);
-    const beforeArr = normalizeImgArray(item.beforeImgs, item.beforeImg);
-    const afterArr = normalizeImgArray(item.afterImgs, item.afterImg);
-
-    if (formArr.length > 0) {
-        renderDetailGallery('dt-form-grid', formArr);
-        formContainer.classList.remove('hidden');
-    } else {
-        formContainer.classList.add('hidden');
-    }
-
-    renderDetailGallery('dt-before-grid', beforeArr);
-
-    if (item.status === 'เสร็จสมบูรณ์แล้ว') {
-        afterContainer.classList.remove('hidden');
-        renderDetailGallery('dt-after-grid', afterArr);
-        if(item.completedDate) {
-            const cObj = new Date(item.completedDate);
-            completeDate.textContent = "ดำเนินการเสร็จเมื่อ: " + (!isNaN(cObj) ? formatThaiDate(cObj, 'long') : item.completedDate);
-            completeDate.classList.remove('hidden');
-        } else {
-            completeDate.classList.add('hidden');
-        }
-    } else {
-        afterContainer.classList.add('hidden');
-        completeDate.classList.add('hidden');
-    }
-
-    // Actions
-    document.getElementById('dt-btn-edit').onclick = () => { closeDetailModal(); openForm(item.id); };
-    document.getElementById('dt-btn-delete').onclick = () => { deleteItem(item.id); };
-
-    document.getElementById('detail-modal').classList.remove('hidden');
-}
-
-// วาดรูปภาพหลายรูปในหน้ารายละเอียด (แนบแบบฟอร์ม / ก่อน / หลังดำเนินการ)
-function renderDetailGallery(containerId, imgs) {
-    const container = document.getElementById(containerId);
-    if (!imgs || imgs.length === 0) {
-        container.innerHTML = `<img src="https://placehold.co/600x400/eeeeee/999999?text=ไม่มีรูปภาพ" alt="ไม่มีรูปภาพ" class="w-full h-28 md:h-32 object-cover rounded-xl border-2 border-gray-200 col-span-2">`;
-        return;
-    }
-    container.innerHTML = imgs.map(src => `
-        <img src="${escapeHtml(safeImageSrc(src))}" alt="รูปภาพประกอบ" class="w-full h-28 md:h-32 object-cover rounded-xl border-2 border-gray-200 cursor-pointer shadow-sm hover:opacity-90 transition-opacity" onclick="openImageViewer(this.src)" onerror="this.src='https://placehold.co/600x400/eeeeee/999999?text=ไม่มีรูปภาพ'">
-    `).join('');
-}
-
-function closeDetailModal() {
-    document.getElementById('detail-modal').classList.add('hidden');
-}
-
-// Dashboard Render
-function setFilter(status) {
-    currentFilter = status;
-    currentPage = 1;
-    
-    // Update UI styles for filter cards
-    document.querySelectorAll('.stat-card').forEach(card => {
-        if(card.dataset.filter === status) {
-            card.classList.remove('opacity-60');
-            card.classList.add('ring-2');
-        } else {
-            card.classList.add('opacity-60');
-            card.classList.remove('ring-2');
-        }
-    });
-
-    // Sync with dropdown filter
-    const statusDropdown = document.getElementById('filter-status');
-    if (statusDropdown && statusDropdown.value !== status) {
-        statusDropdown.value = status;
-    }
-
-    renderDashboard();
-}
-
-function renderDashboard() {
-    const searchTerm = document.getElementById('search-input').value.toLowerCase();
-    
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    
-    // Filter logic
-    let filtered = complaints.filter(c => {
-        // 1. Status Filter
-        const matchStatus = currentFilter === 'ทั้งหมด' || c.status === currentFilter;
-        
-        // 2. Department Filter
-        const deptVal = document.getElementById('filter-dept').value;
-        const matchDept = deptVal === 'ทั้งหมด' || c.department === deptVal;
-
-        // 3. Zone Filter
-        const zoneVal = document.getElementById('filter-zone').value;
-        const matchZone = zoneVal === 'ทั้งหมด' || c.zone === zoneVal;
-
-        // 4. Search Filter
-        const matchSearch = c.title.toLowerCase().includes(searchTerm) || 
-                            (c.receiveNo && c.receiveNo.toLowerCase().includes(searchTerm)) ||
-                            c.requester.toLowerCase().includes(searchTerm) ||
-                            (c.supervisor && c.supervisor.toLowerCase().includes(searchTerm));
-                            
-        // 5. Time Filter
-        let matchTime = true;
-        if (c.startDate && timeFilterVal !== 'ทั้งหมด') {
-            // ป้องกันปัญหา Timezone โดยอ่านค่าแยกส่วน
-            const [cYear, cMonth, cDay] = c.startDate.split('-').map(Number);
-            const cDateOnly = new Date(cYear, cMonth - 1, cDay);
-
-            if (timeFilterVal === 'วันนี้') {
-                matchTime = cDateOnly.getTime() === today.getTime();
-            } else if (timeFilterVal === 'สัปดาห์นี้') {
-                const startOfWeek = new Date(today);
-                startOfWeek.setDate(today.getDate() - today.getDay()); // Sunday
-                const endOfWeek = new Date(today);
-                endOfWeek.setDate(today.getDate() - today.getDay() + 6); // Saturday
-                matchTime = cDateOnly >= startOfWeek && cDateOnly <= endOfWeek;
-            } else if (timeFilterVal === 'เดือนนี้') {
-                matchTime = cDateOnly.getMonth() === today.getMonth() && cDateOnly.getFullYear() === today.getFullYear();
-            } else if (timeFilterVal === 'ปีนี้') {
-                matchTime = cDateOnly.getFullYear() === today.getFullYear();
-            } else if (timeFilterVal === 'กำหนดเอง') {
-                const customDateVal = document.getElementById('filter-custom-date').value;
-                if(customDateVal) {
-                    const [sYear, sMonth, sDay] = customDateVal.split('-').map(Number);
-                    const cDate = new Date(sYear, sMonth - 1, sDay);
-                    matchTime = cDateOnly.getTime() === cDate.getTime();
-                }
-            }
-        }
-
-        return matchStatus && matchSearch && matchTime && matchDept && matchZone;
-    });
-
-    // Update Stats
-    document.getElementById('stat-total').textContent = complaints.length;
-    document.getElementById('stat-pending').textContent = complaints.filter(c=>c.status==='ยังไม่เริ่ม').length;
-    document.getElementById('stat-progress').textContent = complaints.filter(c=>c.status==='กำลังดำเนินการ').length;
-    document.getElementById('stat-done').textContent = complaints.filter(c=>c.status==='เสร็จสมบูรณ์แล้ว').length;
-
-    // Render Chart
-    renderChart();
-
-    const container = document.getElementById('complaints-container');
-    container.innerHTML = '';
-
-    if (filtered.length === 0) {
-        container.innerHTML = `
-            <div class="col-span-full flex flex-col items-center justify-center p-10 bg-white rounded-2xl border border-dashed border-gray-300 text-gray-400">
-                <i data-lucide="folder-search" class="w-12 h-12 mb-3"></i>
-                <p class="font-semibold">ไม่พบข้อมูลคำร้อง</p>
-            </div>`;
-        lucide.createIcons();
-        renderPagination(0, 1);
-        return;
-    }
-
-    // Sort newest first
-    filtered.sort((a,b) => new Date(b.startDate) - new Date(a.startDate));
-
-    // แบ่งหน้า (Pagination)
-    const totalPages = Math.max(1, Math.ceil(filtered.length / ITEMS_PER_PAGE));
-    if (currentPage > totalPages) currentPage = totalPages;
-    if (currentPage < 1) currentPage = 1;
-    const startIdx = (currentPage - 1) * ITEMS_PER_PAGE;
-    const pageItems = filtered.slice(startIdx, startIdx + ITEMS_PER_PAGE);
-
-    pageItems.forEach(c => {
-        const st = STATUS_CONFIG[c.status];
-        
-        // Format date with Buddhist Year (พ.ศ.)
-        const dObj = new Date(c.startDate);
-        const dStr = !isNaN(dObj) ? formatThaiDate(dObj, 'short') : c.startDate;
-
-        // Determine which image to show (After img has priority if finished, else Before img, else Placeholder)
-        const cAfterArr = normalizeImgArray(c.afterImgs, c.afterImg);
-        const cBeforeArr = normalizeImgArray(c.beforeImgs, c.beforeImg);
-        const displayImg = cAfterArr[0] ? cAfterArr[0] : (cBeforeArr[0] ? cBeforeArr[0] : 'https://placehold.co/600x400/eeeeee/999999?text=ไม่มีรูปภาพ');
-
-        const card = document.createElement('div');
-        card.className = "bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-all cursor-pointer flex flex-col group relative overflow-hidden";
-        card.onclick = () => viewDetail(c.id);
-
-        // Add a small color strip on top based on status
-        let stripColor = c.status === 'เสร็จสมบูรณ์แล้ว' ? 'bg-emerald-500' : (c.status === 'กำลังดำเนินการ' ? 'bg-yellow-500' : 'bg-red-500');
-
-        card.innerHTML = `
-            <div class="absolute top-0 left-0 right-0 h-1 ${stripColor} z-10"></div>
-            
-            <!-- Cover Image -->
-            <div class="w-full h-36 bg-gray-100 overflow-hidden relative">
-                <img src="${escapeHtml(safeImageSrc(displayImg))}" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" alt="รูปภาพประกอบ" onerror="this.src='https://placehold.co/600x400/eeeeee/999999?text=ไม่มีรูปภาพ'">
-                <div class="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent"></div>
-                <div class="absolute bottom-3 left-3 right-3 flex justify-between items-end">
-                    <span class="px-2.5 py-1 rounded-md text-[10px] font-bold ${st.bg} ${st.color} border ${st.border} shadow-sm backdrop-blur-md bg-opacity-90">${escapeHtml(c.status)}</span>
-                    <span class="text-[10px] text-white font-medium drop-shadow-md bg-black/30 px-2 py-0.5 rounded-md backdrop-blur-sm">${escapeHtml(dStr)}</span>
-                </div>
-            </div>
-
-            <!-- Card Body -->
-            <div class="p-4 flex flex-col flex-1">
-                <h3 class="font-bold text-gray-800 mb-2 leading-snug line-clamp-2 group-hover:text-brand transition-colors">${escapeHtml(c.title)}</h3>
-                <div class="space-y-1 mb-4 flex-1">
-                    <p class="text-xs text-gray-500 flex items-center gap-1.5"><i data-lucide="map-pin" class="w-3.5 h-3.5 text-gray-400"></i> ${escapeHtml(c.zone)}</p>
-                    <p class="text-xs text-gray-500 flex items-center gap-1.5"><i data-lucide="user" class="w-3.5 h-3.5 text-gray-400"></i> ผู้ร้อง: ${escapeHtml(c.requester)}</p>
-                    <p class="text-[10px] text-gray-400 flex items-center gap-1.5 mt-1"><i data-lucide="hard-hat" class="w-3.5 h-3.5 text-gray-400"></i> รับผิดชอบ: ${escapeHtml(c.department)}</p>
-                </div>
-                <div class="pt-3 border-t border-gray-50 flex items-center justify-between mt-auto">
-                    <p class="text-[10px] font-semibold text-gray-400">ID: ${escapeHtml(c.receiveNo || c.id)}</p>
-                    <button class="text-brand text-xs font-bold hover:underline flex items-center gap-1">ดูรายละเอียด <i data-lucide="chevron-right" class="w-3 h-3"></i></button>
-                </div>
-            </div>
-        `;
-        container.appendChild(card);
-    });
-    lucide.createIcons({ root: container });
-    renderPagination(filtered.length, totalPages);
-}
-
-// สร้างแถบเลขหน้า (Pagination Controls) — ฟังก์ชันกลางใช้ซ้ำได้ทั้งหน้า Dashboard และรายการงานของทีมงาน
-function renderPaginationControls(containerId, totalItems, currentPageNum, totalPages, onPageChange) {
-    const pagContainer = document.getElementById(containerId);
-    if (!pagContainer) return;
-    pagContainer.innerHTML = '';
-
-    if (totalItems === 0 || totalPages <= 1) return;
-
-    const baseBtn = "min-w-[38px] h-[38px] px-2 flex items-center justify-center rounded-xl text-sm font-bold transition-all";
-    const inactiveBtn = `${baseBtn} bg-white border border-gray-200 text-gray-600 hover:bg-gray-50`;
-    const activeBtn = `${baseBtn} bg-brand text-white shadow-md`;
-    const disabledBtn = `${baseBtn} bg-gray-50 border border-gray-100 text-gray-300 cursor-not-allowed`;
-
-    const wrapper = document.createElement('div');
-    wrapper.className = "flex items-center justify-center flex-wrap gap-2";
-
-    // ปุ่มก่อนหน้า
-    const prevBtn = document.createElement('button');
-    prevBtn.className = currentPageNum === 1 ? disabledBtn : inactiveBtn;
-    prevBtn.innerHTML = `<i data-lucide="chevron-left" class="w-4 h-4"></i>`;
-    if (currentPageNum !== 1) prevBtn.onclick = () => onPageChange(currentPageNum - 1);
-    wrapper.appendChild(prevBtn);
-
-    // คำนวณช่วงเลขหน้าที่จะแสดง (แสดงหน้าแรก, หน้าสุดท้าย, และหน้าใกล้เคียงหน้าปัจจุบัน)
-    const pagesToShow = new Set();
-    pagesToShow.add(1);
-    pagesToShow.add(totalPages);
-    for (let p = currentPageNum - 1; p <= currentPageNum + 1; p++) {
-        if (p >= 1 && p <= totalPages) pagesToShow.add(p);
-    }
-    const sortedPages = Array.from(pagesToShow).sort((a, b) => a - b);
-
-    let lastPage = 0;
-    sortedPages.forEach(p => {
-        if (lastPage && p - lastPage > 1) {
-            const dots = document.createElement('span');
-            dots.className = "min-w-[38px] h-[38px] flex items-center justify-center text-gray-400 text-sm font-bold";
-            dots.textContent = '...';
-            wrapper.appendChild(dots);
-        }
-        const pageBtn = document.createElement('button');
-        pageBtn.className = p === currentPageNum ? activeBtn : inactiveBtn;
-        pageBtn.textContent = p;
-        pageBtn.onclick = () => onPageChange(p);
-        wrapper.appendChild(pageBtn);
-        lastPage = p;
-    });
-
-    // ปุ่มถัดไป
-    const nextBtn = document.createElement('button');
-    nextBtn.className = currentPageNum === totalPages ? disabledBtn : inactiveBtn;
-    nextBtn.innerHTML = `<i data-lucide="chevron-right" class="w-4 h-4"></i>`;
-    if (currentPageNum !== totalPages) nextBtn.onclick = () => onPageChange(currentPageNum + 1);
-    wrapper.appendChild(nextBtn);
-
-    pagContainer.appendChild(wrapper);
-    lucide.createIcons({ root: pagContainer });
-}
-
-// Pagination ของหน้า Dashboard (ห่อฟังก์ชันกลางด้านบน)
-function renderPagination(totalItems, totalPages) {
-    renderPaginationControls('pagination-container', totalItems, currentPage, totalPages, changePage);
-}
-
-// เปลี่ยนหน้าที่กำลังแสดง
-function changePage(page) {
-    currentPage = page;
-    renderDashboard();
-    const container = document.getElementById('complaints-container');
-    if (container) container.scrollIntoView({ behavior: 'smooth', block: 'start' });
-}
-
-// Render D3 Chart function
-function renderChart() {
-    const container = document.getElementById('status-chart');
-    if (!container) return;
-    container.innerHTML = ''; // Clear old chart
-    
-    const counts = [
-        { label: 'ยังไม่เริ่ม', value: complaints.filter(c=>c.status==='ยังไม่เริ่ม').length, color: '#ef4444' },
-        { label: 'กำลังดำเนินการ', value: complaints.filter(c=>c.status==='กำลังดำเนินการ').length, color: '#eab308' },
-        { label: 'เสร็จสมบูรณ์', value: complaints.filter(c=>c.status==='เสร็จสมบูรณ์แล้ว').length, color: '#10b981' }
-    ];
-
-    const total = counts.reduce((sum, item) => sum + item.value, 0);
-    if (total === 0) {
-        container.innerHTML = '<p class="text-gray-400 text-sm font-medium">ไม่มีข้อมูลสำหรับแสดงกราฟ</p>';
-        return;
-    }
-
-    // Create Flex Container for Chart + Legend
-    const wrapper = document.createElement('div');
-    wrapper.className = "flex flex-col md:flex-row items-center justify-center w-full h-full gap-8";
-    container.appendChild(wrapper);
-
-    const chartDiv = document.createElement('div');
-    chartDiv.className = "relative w-48 h-48 flex-shrink-0";
-    wrapper.appendChild(chartDiv);
-
-    const legendDiv = document.createElement('div');
-    legendDiv.className = "flex flex-col gap-4 min-w-[150px]";
-    wrapper.appendChild(legendDiv);
-
-    // Build HTML Legend
-    counts.forEach(c => {
-        legendDiv.innerHTML += `
-            <div class="flex items-center gap-3">
-                <span class="w-4 h-4 rounded-full shadow-sm" style="background-color: ${c.color};"></span>
-                <span class="text-sm font-medium text-gray-600">${c.label}</span>
-                <span class="text-sm font-black text-gray-800 ml-auto pl-4">${c.value}</span>
-            </div>
-        `;
-    });
-
-    // Set dimensions for D3 Donut Chart
-    const width = 192; 
-    const height = 192;
-    const margin = 5;
-    const radius = Math.min(width, height) / 2 - margin;
-
-    const svg = d3.select(chartDiv)
-        .append("svg")
-        .attr("width", "100%")
-        .attr("height", "100%")
-        .attr("viewBox", `0 0 ${width} ${height}`)
-        .attr("preserveAspectRatio", "xMidYMid meet")
-        .append("g")
-        .attr("transform", `translate(${width / 2},${height / 2})`);
-
-    const pie = d3.pie()
-        .value(d => d.value)
-        .sort(null); // Keep original order
-    
-    const activeData = counts.filter(d => d.value > 0);
-    const data_ready = pie(activeData);
-
-    const arcGenerator = d3.arc()
-        .innerRadius(radius * 0.55) // Donut thickness
-        .outerRadius(radius);
-
-    // Draw Slices with hover animation
-    svg.selectAll('path')
-        .data(data_ready)
-        .join('path')
-        .attr('d', arcGenerator)
-        .attr('fill', d => d.data.color)
-        .attr("stroke", "#ffffff")
-        .style("stroke-width", "3px")
-        .style("transition", "transform 0.2s ease-in-out")
-        .on("mouseover", function() { d3.select(this).attr("transform", "scale(1.05)"); })
-        .on("mouseout", function() { d3.select(this).attr("transform", "scale(1)"); });
-
-    // Add Values inside Slices
-    svg.selectAll('text.val')
-        .data(data_ready)
-        .join('text')
-        .text(d => d.data.value)
-        .attr("transform", d => `translate(${arcGenerator.centroid(d)})`)
-        .style("text-anchor", "middle")
-        .style("font-size", "14px")
-        .style("font-family", "'Prompt', sans-serif")
-        .style("fill", "#ffffff")
-        .style("font-weight", "bold")
-        .style("pointer-events", "none")
-        .attr("dy", "0.35em"); // vertically center
-
-    // Add Total in the center of Donut
-    svg.append("text")
-        .attr("text-anchor", "middle")
-        .text("ทั้งหมด")
-        .style("font-size", "12px")
-        .style("fill", "#9ca3af")
-        .style("font-family", "'Prompt', sans-serif")
-        .attr("dy", "-0.6em");
-        
-    svg.append("text")
-        .attr("text-anchor", "middle")
-        .text(total)
-        .style("font-size", "24px")
-        .style("fill", "#1f2937")
-        .style("font-weight", "900")
-        .style("font-family", "'Prompt', sans-serif")
-        .attr("dy", "0.7em");
-}
-
-// เก็บกลุ่มทีมงานล่าสุดไว้ใช้ตอนคลิกดูรายการงาน (คำนวณใหม่ทุกครั้งที่ renderTeamBreakdown ทำงาน)
-let teamGroupsCache = {};
-let selectedTeamKey = null; // key ของทีมงานที่กำลังเปิดดูรายการงานอยู่ (ถ้ามี)
-let selectedTeamLabel = ''; // ป้ายชื่อทีมงานที่กำลังเปิดดูอยู่ (ไว้แสดงหัวข้อ/สร้างใหม่ตอนรีเฟรช)
-let currentTeamPage = 1; // หน้าปัจจุบันของรายการงานในทีมที่เลือก
-let selectedSubDeptFilter = 'ทั้งหมด'; // ตัวกรองชุดปฏิบัติงานย่อย (ใช้เฉพาะตอนเปิดดูทีมงานโยธา)
-let selectedPlanningTopicFilter = 'ทั้งหมด'; // ตัวกรองงานร้องเรียน (ใช้เฉพาะตอนเปิดดูทีมฝ่ายแผน)
-
-// ชุดปฏิบัติงานย่อยของงานโยธา (ต้องตรงกับตัวเลือกในฟอร์มบันทึกคำร้อง f-subDepartment ทุกประการ)
-const SUB_DEPARTMENTS = [
-    { value: 'ชุดซ่อมปะถนน', label: 'ชุดซ่อมปะถนน', color: '#f97316' },
-    { value: 'ชุด JCB', label: 'ชุดซ่อม JCB', color: '#eab308' },
-    { value: 'ชุดตัดหญ้า', label: 'ชุดตัดหญ้า', color: '#22c55e' },
-    { value: 'อื่น ๆ', label: 'อื่น ๆ', color: '#94a3b8' }
-];
-
-// งานร้องเรียนของฝ่ายแผน (ต้องตรงกับตัวเลือกในฟอร์มบันทึกคำร้อง f-planningTopic ทุกประการ)
-const PLANNING_TOPICS = [
-    { value: 'พรบ.ควบคุมอาคาร', label: 'พรบ.ควบคุมอาคาร', color: '#3b82f6' },
-    { value: 'ขุดดินถมดิน', label: 'ขุดดินถมดิน', color: '#f97316' },
-    { value: 'อื่น ๆ', label: 'อื่น ๆ', color: '#94a3b8' }
-];
-
-// ข้อมูลการแสดงผลของแต่ละหน่วยงาน (ไอคอน + โทนสี) ใช้จัดกลุ่มกราฟในหน้าภาระงานทีมงานให้ดูเป็นระเบียบและแยกหมวดชัดเจน
-const DEPARTMENT_META = {
-    'งานโยธา': {
-        icon: 'hard-hat',
-        chipBg: 'bg-orange-100', chipText: 'text-orange-700',
-        cardBorder: 'border-orange-100', cardBorderHover: 'hover:border-orange-300'
-    },
-    'งานไฟฟ้า': {
-        icon: 'zap',
-        chipBg: 'bg-amber-100', chipText: 'text-amber-700',
-        cardBorder: 'border-amber-100', cardBorderHover: 'hover:border-amber-300'
-    },
-    'ฝ่ายแผน': {
-        icon: 'clipboard-list',
-        chipBg: 'bg-blue-100', chipText: 'text-blue-700',
-        cardBorder: 'border-blue-100', cardBorderHover: 'hover:border-blue-300'
-    }
-};
-
-// รายชื่อ "ทีมงาน" คงที่ 8 ทีม (หน่วยงาน x เขต) ที่ต้องการแสดงเสมอ เรียงตามลำดับนี้ตายตัว
-// งานโยธา จะรวมทุกชุดปฏิบัติงานย่อย (ชุดซ่อมปะถนน/ชุด JCB/ชุดตัดหญ้า/อื่น ๆ) เข้าเป็นกราฟเดียวต่อเขต
-// งานไฟฟ้า มีเพียง 2 เขต (เขต 1, เขต 2)
-const FIXED_TEAMS = [
-    { department: 'งานโยธา', zone: 'เขต 1' },
-    { department: 'งานโยธา', zone: 'เขต 2' },
-    { department: 'งานโยธา', zone: 'เขต 3' },
-    { department: 'งานไฟฟ้า', zone: 'เขต 1 - ไฟฟ้า' },
-    { department: 'งานไฟฟ้า', zone: 'เขต 2 - ไฟฟ้า' },
-    { department: 'ฝ่ายแผน', zone: 'เขต 1' },
-    { department: 'ฝ่ายแผน', zone: 'เขต 2' },
-    { department: 'ฝ่ายแผน', zone: 'เขต 3' }
-];
-
-// สรุปภาระงานคงค้าง แยกเป็นหมวดตามหน่วยงาน (งานโยธา / งานไฟฟ้า / ฝ่ายแผน) แต่ละหมวดมีกราฟตามเขตพื้นที่เรียงลำดับตายตัวตาม FIXED_TEAMS
-// แสดงเป็นกราฟวงกลม (โดนัท) ของแต่ละทีม คลิกวงไหนจะเปิดรายการงานของทีมนั้นด้านล่างทันที
-// ใช้ข้อมูลทั้งหมดเสมอ (ไม่ผูกกับตัวกรองค้นหา/สถานะด้านบน) เพื่อให้เห็นภาพรวมทุกทีมพร้อมกันในจุดเดียว
-// แสดงครบทุกกราฟเสมอ แม้ทีมนั้นจะยังไม่มีคำร้องเลยก็ตาม (จะขึ้นเป็นวงกลม 0)
-function renderTeamBreakdown() {
-    const container = document.getElementById('team-breakdown');
-    if (!container) return;
-    container.innerHTML = '';
-
-    // ตั้งต้นกลุ่มคงที่ 8 กลุ่มไว้ก่อนเป็น 0 ทั้งหมด
-    const groups = {};
-    FIXED_TEAMS.forEach(({ department, zone }) => {
-        const key = `${department}|${zone}`;
-        groups[key] = { department, zone, total: 0, pending: 0, progress: 0, done: 0 };
-    });
-
-    // นับจำนวนคำร้องของแต่ละหน่วยงาน + เขต (รวมทุกชุดปฏิบัติงานย่อยของงานโยธาเข้าด้วยกัน)
-    complaints.forEach(c => {
-        const key = `${c.department}|${c.zone}`;
-        const g = groups[key];
-        if (!g) return; // ข้ามคำร้องที่หน่วยงาน/เขตไม่ตรงกับทีมงานหลัก (เช่น ข้อมูลเก่าที่ผิดรูปแบบ)
-        g.total++;
-        if (c.status === 'ยังไม่เริ่ม') g.pending++;
-        else if (c.status === 'กำลังดำเนินการ') g.progress++;
-        else if (c.status === 'เสร็จสมบูรณ์แล้ว') g.done++;
-    });
-    teamGroupsCache = groups;
-
-    container.className = "space-y-8";
-
-    // จัดกลุ่ม FIXED_TEAMS ตามหน่วยงาน โดยคงลำดับเดิมไว้เป๊ะ ๆ (งานโยธา เขต 1→3, งานไฟฟ้า เขต 1→2, ฝ่ายแผน เขต 1→3)
-    const deptOrder = [];
-    const deptTeams = {};
-    FIXED_TEAMS.forEach(team => {
-        if (!deptTeams[team.department]) {
-            deptTeams[team.department] = [];
-            deptOrder.push(team.department);
-        }
-        deptTeams[team.department].push(team);
-    });
-
-    deptOrder.forEach((department, sectionIdx) => {
-        const meta = DEPARTMENT_META[department] || { icon: 'folder', chipBg: 'bg-gray-100', chipText: 'text-gray-700', cardBorder: 'border-gray-100', cardBorderHover: 'hover:border-gray-300' };
-        const teams = deptTeams[department];
-        const deptTotal = teams.reduce((sum, { zone }) => sum + (groups[`${department}|${zone}`]?.total || 0), 0);
-
-        // หัวข้อของแต่ละหมวดหน่วยงาน พร้อมไอคอนสีประจำหน่วยงาน และยอดรวมกำกับไว้ท้ายหัวข้อ
-        const section = document.createElement('div');
-        section.className = sectionIdx > 0 ? "pt-8 border-t border-gray-100" : "";
-        section.innerHTML = `
-            <div class="flex items-center gap-2.5 mb-4">
-                <span class="w-9 h-9 rounded-xl flex items-center justify-center ${meta.chipBg} ${meta.chipText} flex-shrink-0">
-                    <i data-lucide="${meta.icon}" class="w-4 h-4"></i>
-                </span>
-                <h4 class="font-bold text-gray-800 text-sm md:text-base">${escapeHtml(department)}</h4>
-                <span class="ml-auto text-[11px] font-bold ${meta.chipText} ${meta.chipBg} px-2.5 py-1 rounded-full">รวม ${deptTotal} งาน</span>
-            </div>
-        `;
-
-        const grid = document.createElement('div');
-        grid.className = "flex flex-wrap justify-center sm:justify-start gap-4";
-
-        // เขตต่าง ๆ ของหน่วยงานนี้ เรียงตามลำดับใน FIXED_TEAMS เสมอ (เขต 1 → 2 → 3)
-        teams.forEach(({ zone }) => {
-            const key = `${department}|${zone}`;
-            const g = groups[key];
-            // งานไฟฟ้า: ชื่อเขตมีคำว่า "ไฟฟ้า" อยู่แล้ว จึงใช้เขตเป็นป้ายชื่อตรง ๆ ไม่ต้องซ้ำชื่อหน่วยงาน
-            const detailLabel = department === 'งานไฟฟ้า' ? zone : (zone ? `${department} - ${zone}` : department);
-            // ป้ายบนการ์ด: ตัดคำว่า "ไฟฟ้า" ออก เพราะหัวข้อหมวดด้านบนบอกชื่อหน่วยงานอยู่แล้ว ไม่ต้องซ้ำ
-            const cardLabel = department === 'งานไฟฟ้า' ? zone.replace(' - ไฟฟ้า', '') : (zone || department);
-            const isSelected = key === selectedTeamKey;
-
-            const card = document.createElement('div');
-            card.className = "flex flex-col items-center gap-2 p-4 rounded-2xl border-2 transition-all cursor-pointer bg-white w-[136px] flex-shrink-0 " +
-                (isSelected ? "border-brand shadow-md ring-2 ring-brand/20" : `${meta.cardBorder} ${meta.cardBorderHover} hover:shadow-sm`);
-            card.onclick = () => showTeamDetail(key, detailLabel);
-
-            const donutWrap = document.createElement('div');
-            donutWrap.className = "relative w-24 h-24 flex-shrink-0";
-            card.appendChild(donutWrap);
-
-            drawMiniDonut(donutWrap, g);
-
-            const textWrap = document.createElement('div');
-            textWrap.className = "text-center";
-            textWrap.innerHTML = `
-                <p class="text-xs font-bold text-gray-700 leading-snug">${escapeHtml(cardLabel)}</p>
-                <p class="text-[11px] font-semibold text-gray-400 mt-0.5">รวม ${g.total} งาน</p>
-            `;
-            card.appendChild(textWrap);
-
-            grid.appendChild(card);
-        });
-
-        section.appendChild(grid);
-        container.appendChild(section);
-    });
-
-    lucide.createIcons({ root: container });
-
-    // ถ้ากำลังเปิดดูรายการงานของทีมใดอยู่ ให้รีเฟรชรายการนั้นตามข้อมูลล่าสุดด้วย (เผื่อมีการเพิ่ม/แก้ไข/ลบระหว่างเปิดดูอยู่)
-    if (selectedTeamKey) {
-        if (teamGroupsCache[selectedTeamKey]) {
-            renderTeamDetailList();
-        } else {
-            closeTeamDetail(); // ทีมเดิมไม่อยู่ในกลุ่มคงที่แล้ว ให้ปิดพาเนลไป
-        }
-    }
-}
-
-// วาดกราฟวงกลม (โดนัท) ขนาดเล็กสำหรับการ์ดสรุปทีมงานแต่ละทีม ด้วย D3 (โทนสีเดียวกับกราฟหลักของ Dashboard)
-function drawMiniDonut(wrapEl, g) {
-    const counts = [
-        { value: g.pending, color: '#ef4444' },
-        { value: g.progress, color: '#eab308' },
-        { value: g.done, color: '#10b981' }
-    ];
-    const activeData = counts.filter(d => d.value > 0);
-
-    const width = 96, height = 96, margin = 3;
-    const radius = Math.min(width, height) / 2 - margin;
-
-    const svg = d3.select(wrapEl)
-        .append("svg")
-        .attr("width", "100%")
-        .attr("height", "100%")
-        .attr("viewBox", `0 0 ${width} ${height}`)
-        .attr("preserveAspectRatio", "xMidYMid meet")
-        .append("g")
-        .attr("transform", `translate(${width / 2},${height / 2})`);
-
-    const pie = d3.pie().value(d => d.value).sort(null);
-    const data_ready = pie(activeData);
-
-    const arcGenerator = d3.arc()
-        .innerRadius(radius * 0.55)
-        .outerRadius(radius);
-
-    svg.selectAll('path')
-        .data(data_ready)
-        .join('path')
-        .attr('d', arcGenerator)
-        .attr('fill', d => d.data.color)
-        .attr("stroke", "#ffffff")
-        .style("stroke-width", "2px");
-
-    svg.append("text")
-        .attr("text-anchor", "middle")
-        .text(g.total)
-        .style("font-size", "20px")
-        .style("fill", "#1f2937")
-        .style("font-weight", "900")
-        .style("font-family", "'Prompt', sans-serif")
-        .attr("dy", "0.35em");
-}
-
-// วาดกราฟวงกลม (โดนัท) แสดงสัดส่วนงานร้องเรียนของฝ่ายแผน (พรบ.ควบคุมอาคาร / ขุดดินถมดิน)
-// พร้อมคำอธิบายสัญลักษณ์ (legend) บอกจำนวนแต่ละประเภทกำกับไว้ข้าง ๆ
-function drawPlanningTopicChart(counts, total) {
-    const chartEl = document.getElementById('team-planningtopic-chart');
-    const legendEl = document.getElementById('team-planningtopic-legend');
-    if (!chartEl || !legendEl) return;
-
-    chartEl.innerHTML = '';
-    const data = PLANNING_TOPICS.map(pt => ({ label: pt.label, value: counts[pt.value] || 0, color: pt.color }));
-    const activeData = data.filter(d => d.value > 0);
-
-    const width = 64, height = 64, margin = 2;
-    const radius = Math.min(width, height) / 2 - margin;
-
-    const svg = d3.select(chartEl)
-        .append("svg")
-        .attr("width", "100%")
-        .attr("height", "100%")
-        .attr("viewBox", `0 0 ${width} ${height}`)
-        .attr("preserveAspectRatio", "xMidYMid meet")
-        .append("g")
-        .attr("transform", `translate(${width / 2},${height / 2})`);
-
-    if (activeData.length === 0) {
-        // ไม่มีข้อมูล ให้แสดงวงแหวนสีเทาจาง ๆ แทนวงเปล่า
-        svg.append("circle")
-            .attr("r", radius)
-            .attr("fill", "none")
-            .attr("stroke", "#e5e7eb")
-            .attr("stroke-width", radius * 0.45);
-    } else {
-        const pie = d3.pie().value(d => d.value).sort(null);
-        const data_ready = pie(activeData);
-        const arcGenerator = d3.arc().innerRadius(radius * 0.55).outerRadius(radius);
-
-        svg.selectAll('path')
-            .data(data_ready)
-            .join('path')
-            .attr('d', arcGenerator)
-            .attr('fill', d => d.data.color)
-            .attr("stroke", "#ffffff")
-            .style("stroke-width", "2px");
-    }
-
-    svg.append("text")
-        .attr("text-anchor", "middle")
-        .text(total)
-        .style("font-size", "15px")
-        .style("fill", "#1f2937")
-        .style("font-weight", "900")
-        .style("font-family", "'Prompt', sans-serif")
-        .attr("dy", "0.35em");
-
-    legendEl.innerHTML = data.map(d => `
-        <div class="flex items-center gap-1.5">
-            <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" style="background-color:${d.color}"></span>
-            <span>${escapeHtml(d.label)} (${d.value})</span>
-        </div>
-    `).join('');
-}
-
-// วาดกราฟวงกลม (โดนัท) แสดงสัดส่วนชุดปฏิบัติงานย่อยของงานโยธา (ชุดซ่อมปะถนน/ชุด JCB/ชุดตัดหญ้า)
-// พร้อมคำอธิบายสัญลักษณ์ (legend) บอกจำนวนแต่ละชุดกำกับไว้ข้าง ๆ (โครงสร้างเดียวกับ drawPlanningTopicChart)
-function drawSubDeptChart(counts, total) {
-    const chartEl = document.getElementById('team-subdept-chart');
-    const legendEl = document.getElementById('team-subdept-legend');
-    if (!chartEl || !legendEl) return;
-
-    chartEl.innerHTML = '';
-    const data = SUB_DEPARTMENTS.map(sd => ({ label: sd.label, value: counts[sd.value] || 0, color: sd.color }));
-    const activeData = data.filter(d => d.value > 0);
-
-    const width = 64, height = 64, margin = 2;
-    const radius = Math.min(width, height) / 2 - margin;
-
-    const svg = d3.select(chartEl)
-        .append("svg")
-        .attr("width", "100%")
-        .attr("height", "100%")
-        .attr("viewBox", `0 0 ${width} ${height}`)
-        .attr("preserveAspectRatio", "xMidYMid meet")
-        .append("g")
-        .attr("transform", `translate(${width / 2},${height / 2})`);
-
-    if (activeData.length === 0) {
-        // ไม่มีข้อมูล ให้แสดงวงแหวนสีเทาจาง ๆ แทนวงเปล่า
-        svg.append("circle")
-            .attr("r", radius)
-            .attr("fill", "none")
-            .attr("stroke", "#e5e7eb")
-            .attr("stroke-width", radius * 0.45);
-    } else {
-        const pie = d3.pie().value(d => d.value).sort(null);
-        const data_ready = pie(activeData);
-        const arcGenerator = d3.arc().innerRadius(radius * 0.55).outerRadius(radius);
-
-        svg.selectAll('path')
-            .data(data_ready)
-            .join('path')
-            .attr('d', arcGenerator)
-            .attr('fill', d => d.data.color)
-            .attr("stroke", "#ffffff")
-            .style("stroke-width", "2px");
-    }
-
-    svg.append("text")
-        .attr("text-anchor", "middle")
-        .text(total)
-        .style("font-size", "15px")
-        .style("fill", "#1f2937")
-        .style("font-weight", "900")
-        .style("font-family", "'Prompt', sans-serif")
-        .attr("dy", "0.35em");
-
-    legendEl.innerHTML = data.map(d => `
-        <div class="flex items-center gap-1.5">
-            <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" style="background-color:${d.color}"></span>
-            <span>${escapeHtml(d.label)} (${d.value})</span>
-        </div>
-    `).join('');
-}
-
-// เปิดพาเนลแสดงรายการงานทั้งหมดของทีมงานที่คลิก (department + zone ตรงกัน รวมทุกชุดปฏิบัติงานย่อย)
-function showTeamDetail(key, label) {
-    const isNewTeam = key !== selectedTeamKey;
-    selectedTeamKey = key;
-    selectedTeamLabel = label;
-    if (isNewTeam) {
-        currentTeamPage = 1; // เปิดทีมใหม่ ให้เริ่มจากหน้าแรกเสมอ
-        selectedSubDeptFilter = 'ทั้งหมด'; // เปิดทีมใหม่ ล้างตัวกรองชุดปฏิบัติงานเดิมเสมอ
-        selectedPlanningTopicFilter = 'ทั้งหมด'; // เปิดทีมใหม่ ล้างตัวกรองงานร้องเรียนเดิมเสมอ
-    }
-
-    renderTeamDetailList();
-    renderTeamBreakdown(); // รีเฟรชกริดเพื่ออัปเดตกรอบไฮไลต์การ์ดที่เลือก
-
-    const panel = document.getElementById('team-detail-panel');
-    if (panel) {
-        panel.classList.remove('hidden');
-        panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
-}
-
-// เปลี่ยนหน้าของรายการงานในทีมที่กำลังเปิดดูอยู่
-function changeTeamPage(page) {
-    currentTeamPage = page;
-    renderTeamDetailList();
-    const listContainer = document.getElementById('team-detail-list');
-    if (listContainer) listContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
-}
-
-// วาดรายการคำร้องของทีมงานที่เลือก ลงในพาเนลรายละเอียด — ใช้การ์ดสไตล์เดียวกับหน้า Dashboard พร้อมแบ่งหน้า
-function renderTeamDetailList() {
-    const panel = document.getElementById('team-detail-panel');
-    const titleEl = document.getElementById('team-detail-title-text');
-    const listEl = document.getElementById('team-detail-list');
-    const subDeptContainer = document.getElementById('team-subdept-filter-container');
-    const subDeptSelect = document.getElementById('team-subdept-filter');
-    const planningTopicContainer = document.getElementById('team-planningtopic-filter-container');
-    const planningTopicSelect = document.getElementById('team-planningtopic-filter');
-    if (!panel || !titleEl || !listEl || !selectedTeamKey) return;
-
-    const [department, zone] = selectedTeamKey.split('|');
-    const teamJobs = complaints.filter(c => c.department === department && c.zone === zone);
-    const isGovyotha = department === 'งานโยธา';
-    const isPlanning = department === 'ฝ่ายแผน';
-
-    // งานโยธา เท่านั้นที่มีชุดปฏิบัติงานย่อยให้เลือกกรองเพิ่ม (แสดงจำนวนงานกำกับแต่ละชุดไว้ในตัวเลือกด้วย)
-    if (isGovyotha && subDeptContainer && subDeptSelect) {
-        subDeptContainer.classList.remove('hidden');
-        const subCounts = {};
-        SUB_DEPARTMENTS.forEach(sd => { subCounts[sd.value] = 0; });
-        teamJobs.forEach(c => { if (subCounts[c.subDepartment] !== undefined) subCounts[c.subDepartment]++; });
-
-        subDeptSelect.innerHTML = `
-            <option value="ทั้งหมด">ทุกชุดปฏิบัติงาน (${teamJobs.length})</option>
-            ${SUB_DEPARTMENTS.map(sd => `<option value="${escapeHtml(sd.value)}">${escapeHtml(sd.label)} (${subCounts[sd.value]})</option>`).join('')}
-        `;
-        subDeptSelect.value = selectedSubDeptFilter;
-        drawSubDeptChart(subCounts, teamJobs.length);
-    } else if (subDeptContainer) {
-        subDeptContainer.classList.add('hidden'); // ฝ่ายแผนไม่มีชุดปฏิบัติงานย่อย ไม่ต้องแสดงตัวกรอง
-    }
-
-    // ฝ่ายแผน เท่านั้นที่มีงานร้องเรียนให้เลือกกรองเพิ่ม พร้อมกราฟวงกลมสรุปสัดส่วน
-    if (isPlanning && planningTopicContainer && planningTopicSelect) {
-        planningTopicContainer.classList.remove('hidden');
-        const topicCounts = {};
-        PLANNING_TOPICS.forEach(pt => { topicCounts[pt.value] = 0; });
-        teamJobs.forEach(c => { if (topicCounts[c.planningTopic] !== undefined) topicCounts[c.planningTopic]++; });
-
-        planningTopicSelect.innerHTML = `
-            <option value="ทั้งหมด">ทุกงานร้องเรียน (${teamJobs.length})</option>
-            ${PLANNING_TOPICS.map(pt => `<option value="${escapeHtml(pt.value)}">${escapeHtml(pt.label)} (${topicCounts[pt.value]})</option>`).join('')}
-        `;
-        planningTopicSelect.value = selectedPlanningTopicFilter;
-        drawPlanningTopicChart(topicCounts, teamJobs.length);
-    } else if (planningTopicContainer) {
-        planningTopicContainer.classList.add('hidden'); // หน่วยงานอื่นไม่มีงานร้องเรียนแบบนี้ ไม่ต้องแสดงตัวกรอง/กราฟ
-    }
-
-    const jobs = (isGovyotha && selectedSubDeptFilter !== 'ทั้งหมด')
-        ? teamJobs.filter(c => c.subDepartment === selectedSubDeptFilter)
-        : (isPlanning && selectedPlanningTopicFilter !== 'ทั้งหมด')
-            ? teamJobs.filter(c => c.planningTopic === selectedPlanningTopicFilter)
-            : teamJobs;
-
-    const subDeptLabel = SUB_DEPARTMENTS.find(sd => sd.value === selectedSubDeptFilter)?.label;
-    const planningTopicLabel = PLANNING_TOPICS.find(pt => pt.value === selectedPlanningTopicFilter)?.label;
-    const titleSuffix = (isGovyotha && selectedSubDeptFilter !== 'ทั้งหมด' && subDeptLabel) ? ` - ${subDeptLabel}`
-        : (isPlanning && selectedPlanningTopicFilter !== 'ทั้งหมด' && planningTopicLabel) ? ` - ${planningTopicLabel}` : '';
-    titleEl.textContent = `${selectedTeamLabel}${titleSuffix} (${jobs.length} งาน)`;
-
-    if (jobs.length === 0) {
-        listEl.className = "";
-        listEl.innerHTML = `
-            <div class="flex flex-col items-center justify-center p-10 bg-white rounded-2xl border border-dashed border-gray-300 text-gray-400">
-                <i data-lucide="folder-search" class="w-12 h-12 mb-3"></i>
-                <p class="font-semibold">ไม่มีงานคงเหลือของทีมนี้แล้ว</p>
-            </div>`;
-        lucide.createIcons({ root: listEl });
-        renderPaginationControls('team-pagination-container', 0, 1, 1, changeTeamPage);
-        return;
-    }
-
-    // เรียงงานที่ยังไม่เสร็จไว้ก่อน (ยังไม่เริ่ม > กำลังดำเนินการ > เสร็จสมบูรณ์) แล้วเรียงวันที่ใหม่สุดก่อนในกลุ่มเดียวกัน
-    const statusOrder = { 'ยังไม่เริ่ม': 0, 'กำลังดำเนินการ': 1, 'เสร็จสมบูรณ์แล้ว': 2 };
-    jobs.sort((a, b) => {
-        const orderDiff = (statusOrder[a.status] ?? 3) - (statusOrder[b.status] ?? 3);
-        if (orderDiff !== 0) return orderDiff;
-        return new Date(b.startDate) - new Date(a.startDate);
-    });
-
-    // แบ่งหน้า (Pagination) เหมือนหน้า Dashboard
-    const totalPages = Math.max(1, Math.ceil(jobs.length / ITEMS_PER_PAGE));
-    if (currentTeamPage > totalPages) currentTeamPage = totalPages;
-    if (currentTeamPage < 1) currentTeamPage = 1;
-    const startIdx = (currentTeamPage - 1) * ITEMS_PER_PAGE;
-    const pageJobs = jobs.slice(startIdx, startIdx + ITEMS_PER_PAGE);
-
-    listEl.className = "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6";
-    listEl.innerHTML = '';
-
-    pageJobs.forEach(c => {
-        const st = STATUS_CONFIG[c.status];
-        const dObj = new Date(c.startDate);
-        const dStr = !isNaN(dObj) ? formatThaiDate(dObj, 'short') : c.startDate;
-
-        const cAfterArr = normalizeImgArray(c.afterImgs, c.afterImg);
-        const cBeforeArr = normalizeImgArray(c.beforeImgs, c.beforeImg);
-        const displayImg = cAfterArr[0] ? cAfterArr[0] : (cBeforeArr[0] ? cBeforeArr[0] : 'https://placehold.co/600x400/eeeeee/999999?text=ไม่มีรูปภาพ');
-
-        const card = document.createElement('div');
-        card.className = "bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-all cursor-pointer flex flex-col group relative overflow-hidden";
-        card.onclick = () => viewDetail(c.id);
-
-        let stripColor = c.status === 'เสร็จสมบูรณ์แล้ว' ? 'bg-emerald-500' : (c.status === 'กำลังดำเนินการ' ? 'bg-yellow-500' : 'bg-red-500');
-
-        card.innerHTML = `
-            <div class="absolute top-0 left-0 right-0 h-1 ${stripColor} z-10"></div>
-
-            <!-- Cover Image -->
-            <div class="w-full h-36 bg-gray-100 overflow-hidden relative">
-                <img src="${escapeHtml(safeImageSrc(displayImg))}" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" alt="รูปภาพประกอบ" onerror="this.src='https://placehold.co/600x400/eeeeee/999999?text=ไม่มีรูปภาพ'">
-                <div class="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent"></div>
-                <div class="absolute bottom-3 left-3 right-3 flex justify-between items-end">
-                    <span class="px-2.5 py-1 rounded-md text-[10px] font-bold ${st.bg} ${st.color} border ${st.border} shadow-sm backdrop-blur-md bg-opacity-90">${escapeHtml(c.status)}</span>
-                    <span class="text-[10px] text-white font-medium drop-shadow-md bg-black/30 px-2 py-0.5 rounded-md backdrop-blur-sm">${escapeHtml(dStr)}</span>
-                </div>
-            </div>
-
-            <!-- Card Body -->
-            <div class="p-4 flex flex-col flex-1">
-                <h3 class="font-bold text-gray-800 mb-2 leading-snug line-clamp-2 group-hover:text-brand transition-colors">${escapeHtml(c.title)}</h3>
-                <div class="space-y-1 mb-4 flex-1">
-                    <p class="text-xs text-gray-500 flex items-center gap-1.5"><i data-lucide="map-pin" class="w-3.5 h-3.5 text-gray-400"></i> ${escapeHtml(c.zone)}</p>
-                    <p class="text-xs text-gray-500 flex items-center gap-1.5"><i data-lucide="user" class="w-3.5 h-3.5 text-gray-400"></i> ผู้ร้อง: ${escapeHtml(c.requester)}</p>
-                    <p class="text-[10px] text-gray-400 flex items-center gap-1.5 mt-1"><i data-lucide="hard-hat" class="w-3.5 h-3.5 text-gray-400"></i> รับผิดชอบ: ${escapeHtml(c.department)}</p>
-                </div>
-                <div class="pt-3 border-t border-gray-50 flex items-center justify-between mt-auto">
-                    <p class="text-[10px] font-semibold text-gray-400">ID: ${escapeHtml(c.receiveNo || c.id)}</p>
-                    <button class="text-brand text-xs font-bold hover:underline flex items-center gap-1">ดูรายละเอียด <i data-lucide="chevron-right" class="w-3 h-3"></i></button>
-                </div>
-            </div>
-        `;
-        listEl.appendChild(card);
-    });
-
-    lucide.createIcons({ root: listEl });
-    renderPaginationControls('team-pagination-container', jobs.length, currentTeamPage, totalPages, changeTeamPage);
-}
-
-// ปิดพาเนลรายละเอียดงานของทีมงาน กลับไปแสดงแค่กริดสรุปทั้งหมด
-function closeTeamDetail() {
-    selectedTeamKey = null;
-    selectedTeamLabel = '';
-    currentTeamPage = 1;
-    selectedSubDeptFilter = 'ทั้งหมด';
-    selectedPlanningTopicFilter = 'ทั้งหมด';
-    const panel = document.getElementById('team-detail-panel');
-    if (panel) panel.classList.add('hidden');
-    // เอากรอบไฮไลต์การ์ดที่เคยเลือกออก (ถ้ายังอยู่ในหน้านี้)
-    const container = document.getElementById('team-breakdown');
-    if (container) {
-        container.querySelectorAll('.border-brand').forEach(el => {
-            el.className = el.className.replace('border-brand shadow-md ring-2 ring-brand/20', 'border-gray-100 hover:border-brand/40 hover:shadow-sm');
-        });
-    }
-}
-
-// Update zone options dynamically based on selected department
-function updateZoneOptions(zones) {
-    const zoneSelect = document.getElementById('f-zone');
-    const currentValue = zoneSelect.value;
-    
-    // Clear existing options except the placeholder
-    const options = zoneSelect.querySelectorAll('option');
-    options.forEach((opt, idx) => {
-        if (idx > 0) opt.remove(); // Keep only first option (placeholder)
-    });
-    
-    // Add new zone options
-    zones.forEach(zone => {
-        const option = document.createElement('option');
-        option.value = zone;
-        option.textContent = zone;
-        zoneSelect.appendChild(option);
-    });
-    
-    // Reset value if it's no longer in the available options
-    if (!zones.includes(currentValue)) {
-        zoneSelect.value = '';
-    } else {
-        zoneSelect.value = currentValue;
-    }
-}
-
-// Setup Form Event Listeners
-function setupEventListeners() {
-    document.getElementById('search-input').addEventListener('input', () => { currentPage = 1; renderDashboard(); });
-
-    // ตัวกรองชุดปฏิบัติงานย่อย ในพาเนลรายละเอียดทีมงาน (ใช้เฉพาะตอนเปิดดูทีมงานโยธา)
-    const teamSubDeptFilterEl = document.getElementById('team-subdept-filter');
-    if (teamSubDeptFilterEl) {
-        teamSubDeptFilterEl.addEventListener('change', (e) => {
-            selectedSubDeptFilter = e.target.value;
-            currentTeamPage = 1;
-            renderTeamDetailList();
-        });
-    }
-
-    // ตัวกรองงานร้องเรียน ในพาเนลรายละเอียดทีมงาน (ใช้เฉพาะตอนเปิดดูทีมฝ่ายแผน)
-    const teamPlanningTopicFilterEl = document.getElementById('team-planningtopic-filter');
-    if (teamPlanningTopicFilterEl) {
-        teamPlanningTopicFilterEl.addEventListener('change', (e) => {
-            selectedPlanningTopicFilter = e.target.value;
-            currentTeamPage = 1;
-            renderTeamDetailList();
-        });
-    }
-
-    // Time filter handling (PILLS)
-    const timeBtns = document.querySelectorAll('.time-btn');
-    const customDateContainer = document.getElementById('custom-date-container');
-
-    timeBtns.forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            // Reset all buttons styling
-            timeBtns.forEach(b => {
-                b.className = "time-btn px-4 py-2 rounded-full border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 bg-white transition-colors whitespace-nowrap";
-            });
-            
-            // Set active styling to clicked button
-            e.target.className = "time-btn px-4 py-2 rounded-full bg-slate-800 text-white text-sm font-medium shadow-sm transition-colors whitespace-nowrap";
-            
-            timeFilterVal = e.target.getAttribute('data-val');
-            currentPage = 1;
-            
-            if (timeFilterVal === 'กำหนดเอง') {
-                customDateContainer.classList.remove('hidden');
-                customDateContainer.classList.add('flex');
-            } else {
-                customDateContainer.classList.add('hidden');
-                customDateContainer.classList.remove('flex');
-                renderDashboard();
-            }
-        });
-    });
-
-    // Dropdowns
-    document.getElementById('filter-status').addEventListener('change', (e) => setFilter(e.target.value));
-    document.getElementById('filter-dept').addEventListener('change', () => { currentPage = 1; renderDashboard(); });
-    document.getElementById('filter-zone').addEventListener('change', () => { currentPage = 1; renderDashboard(); });
-
-    // Custom Dates
-    document.getElementById('filter-custom-date').addEventListener('change', () => { if (timeFilterVal === 'กำหนดเอง') { currentPage = 1; renderDashboard(); } });
-
-    // Re-render chart on window resize to keep it responsive
-    window.addEventListener('resize', () => {
-        if (!document.getElementById('view-dashboard').classList.contains('hidden')) {
-            renderChart();
-        }
-    });
-
-    const deptSelect = document.getElementById('f-department');
-    const subDeptContainer = document.getElementById('sub-department-container');
-    const subDeptSelect = document.getElementById('f-subDepartment');
-    const planningTopicContainer = document.getElementById('planning-topic-container');
-    const planningTopicSelect = document.getElementById('f-planningTopic');
-    const otherWorkNotesContainer = document.getElementById('other-work-notes-container');
-    const otherWorkNotesInput = document.getElementById('f-otherWorkNotes');
-
-    const statusSelect = document.getElementById('f-status');
-    const noteContainer = document.getElementById('note-container');
-    const noteInput = document.getElementById('f-note');
-    const finishedContainer = document.getElementById('finished-container');
-    const completedDateInput = document.getElementById('f-completedDate');
-    const noteRequiredMark = document.getElementById('note-required-mark');
-
-    // อัปเดตการแสดง/ซ่อนและกำหนด required ของช่องระบุชุดปฏิบัติงานหรืองานร้องเรียนอื่น ๆ
-    function updateOtherWorkNotesState() {
-        const isSubDeptOther = subDeptSelect.value === 'อื่น ๆ';
-        const isPlanningTopicOther = planningTopicSelect.value === 'อื่น ๆ';
-        
-        if (isSubDeptOther || isPlanningTopicOther) {
-            otherWorkNotesContainer.classList.remove('hidden');
-            otherWorkNotesInput.setAttribute('required', 'true');
-        } else {
-            otherWorkNotesContainer.classList.add('hidden');
-            otherWorkNotesInput.removeAttribute('required');
-            otherWorkNotesInput.value = ''; // ล้างค่าเมื่อซ่อน
-        }
-    }
-
-    // รวม logic แสดง/บังคับกรอก "หมายเหตุ" ไว้ที่เดียว เพื่อให้ผลลัพธ์ตรงกันไม่ว่าจะเปลี่ยน
-    // สถานะ, หน่วยงาน, ชุดปฏิบัติงาน(งานโยธา) หรืองานร้องเรียน(ฝ่ายแผน) ก่อน-หลังกันก็ตาม
-    function updateNoteState() {
-        const isOtherSelected = (subDeptSelect.value === 'อื่น ๆ') || (planningTopicSelect.value === 'อื่น ๆ');
-
-        if (statusSelect.value === 'เสร็จสมบูรณ์แล้ว') {
-            // งานเสร็จสมบูรณ์แล้ว: ซ่อนหมายเหตุเสมอ ไม่ว่าจะเลือก "อื่น ๆ" ไว้หรือไม่
-            noteContainer.classList.add('hidden');
-            finishedContainer.classList.remove('hidden');
-            completedDateInput.setAttribute('required', 'true');
-            noteInput.removeAttribute('required');
-            noteRequiredMark.classList.add('hidden');
-        } else {
-            noteContainer.classList.remove('hidden');
-            finishedContainer.classList.add('hidden');
-            completedDateInput.removeAttribute('required');
-
-            // บังคับกรอกหมายเหตุเมื่อ "ยังไม่เริ่ม" หรือเมื่อเลือก "อื่น ๆ" ในชุดปฏิบัติงาน/งานร้องเรียน
-            if (statusSelect.value === 'ยังไม่เริ่ม' || isOtherSelected) {
-                noteInput.setAttribute('required', 'true');
-                noteRequiredMark.classList.remove('hidden');
-            } else {
-                noteInput.removeAttribute('required');
-                noteRequiredMark.classList.add('hidden');
-            }
-        }
-    }
-
-    // Show/hide sub-department when department is selected
-    // Also update zone options based on selected department
-    deptSelect.addEventListener('change', (e) => {
-        const selectedDept = e.target.value;
-        const zoneSelect = document.getElementById('f-zone');
-        
-        if (selectedDept === 'งานโยธา') {
-            subDeptContainer.classList.remove('hidden');
-            subDeptSelect.setAttribute('required', 'true');
-            // Show all 3 zones for Civil Works
-            updateZoneOptions(['เขต 1', 'เขต 2', 'เขต 3']);
-        } else {
-            subDeptContainer.classList.add('hidden');
-            subDeptSelect.removeAttribute('required');
-            subDeptSelect.value = '';
-        }
-
-        // Show/hide planning division complaint topic (only for ฝ่ายแผน)
-        if (selectedDept === 'ฝ่ายแผน') {
-            planningTopicContainer.classList.remove('hidden');
-            planningTopicSelect.setAttribute('required', 'true');
-            // Show all 3 zones for Planning Division
-            updateZoneOptions(['เขต 1', 'เขต 2', 'เขต 3']);
-        } else {
-            planningTopicContainer.classList.add('hidden');
-            planningTopicSelect.removeAttribute('required');
-            planningTopicSelect.value = '';
-        }
-
-        // Show only 2 zones for Electrical Work (งานไฟฟ้า) แยกชื่อเขตให้ชัดเจนไม่ปนกับหน่วยงานอื่น
-        if (selectedDept === 'งานไฟฟ้า') {
-            updateZoneOptions(['เขต 1 - ไฟฟ้า', 'เขต 2 - ไฟฟ้า']);
-        }
-
-        // เปลี่ยนหน่วยงานแล้วค่า "อื่น ๆ" เดิมอาจถูกล้างไป ต้องอัปเดตสถานะหมายเหตุใหม่ทุกครั้ง
-        updateNoteState();
-        updateOtherWorkNotesState();
-    });
-
-    statusSelect.addEventListener('change', updateNoteState);
-
-    // เลือก "อื่น ๆ" ในชุดปฏิบัติงาน (งานโยธา) หรืองานร้องเรียน (ฝ่ายแผน) ให้แสดง/บังคับกรอกหมายเหตุ
-    // และย้อนกลับสถานะให้ถูกต้องเมื่อเปลี่ยนไปเลือกตัวเลือกอื่นที่ไม่ใช่ "อื่น ๆ"
-    subDeptSelect.addEventListener('change', () => {
-        updateNoteState();
-        updateOtherWorkNotesState();
-    });
-    planningTopicSelect.addEventListener('change', () => {
-        updateNoteState();
-        updateOtherWorkNotesState();
-    });
-
-    // Image Upload Handlers (รองรับแนบได้หลายรูปต่อหัวข้อ)
-    setupMultiImageUpload('f-formFile', 'form', 'preview-form-grid');
-    setupMultiImageUpload('f-beforeFile', 'before', 'preview-before-grid');
-    setupMultiImageUpload('f-afterFile', 'after', 'preview-after-grid');
-
-    // Form Submit
-    document.getElementById('complaint-form').addEventListener('submit', saveForm);
-}
-
-// ผูก event การเลือกไฟล์รูปภาพสำหรับหัวข้อที่แนบได้หลายรูป (form / before / after)
-// เมื่อเลือกไฟล์ใหม่ รูปจะถูกเพิ่มเข้าไปต่อจากรูปเดิมที่แนบไว้แล้ว ไม่ได้แทนที่
-function setupMultiImageUpload(inputId, type, gridId) {
-    document.getElementById(inputId).addEventListener('change', function(e) {
-        const files = Array.from(e.target.files || []);
-        if (files.length === 0) return;
-
-        const jobs = files.map((file) => {
-            // Check size (< 5MB) ก่อนอ่านไฟล์
-            if (file.size > 5 * 1024 * 1024) {
-                showToast(`ไฟล์ "${file.name}" มีขนาดใหญ่เกินไป (จำกัด 5MB) จึงข้ามไฟล์นี้`, 'error');
-                return Promise.resolve(null);
-            }
-            // ย่อ/บีบอัดรูปก่อนเก็บ เพราะ Firestore จำกัดขนาดเอกสารไว้ที่ 1MB ต่อรายการ
-            return compressImage(file, 800, 0.55).catch((err) => {
-                console.error('Compress image error:', err);
-                showToast(`ไม่สามารถประมวลผลรูปภาพ "${file.name}" ได้`, 'error');
-                return null;
-            });
-        });
-
-        Promise.all(jobs).then((dataUrls) => {
-            dataUrls.filter(Boolean).forEach((dataUrl) => currentImages[type].push(dataUrl));
-            renderPreviewGrid(type, gridId);
-            e.target.value = ''; // เคลียร์ input เพื่อให้เลือกไฟล์ซ้ำ (หรือไฟล์เดิม) เพิ่มได้อีก
-        });
-    });
-}
-
-// วาดรูปตัวอย่างที่แนบไว้ทั้งหมดของหัวข้อนั้น พร้อมปุ่มลบรายรูป
-function renderPreviewGrid(type, gridId) {
-    const grid = document.getElementById(gridId);
-    grid.innerHTML = currentImages[type].map((src, idx) => `
-        <div class="w-24 h-24 flex-shrink-0 relative">
-            <button type="button" onclick="removeImageAt('${type}', ${idx})" class="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 shadow-md hover:bg-red-600"><i data-lucide="x" class="w-3 h-3"></i></button>
-            <img src="${src}" class="w-full h-full object-cover rounded-xl border border-gray-300 shadow-sm cursor-pointer" onclick="openImageViewer(this.src)">
-        </div>
-    `).join('');
-    lucide.createIcons({ root: grid });
-    updateImageSizeIndicator();
-}
-
-// อัปเดตมิเตอร์แสดงขนาดข้อมูลโดยประมาณ (รูปภาพ+ข้อความ) เทียบกับงบ 900KB ของ Firestore แบบเรียลไทม์
-// ให้ผู้ใช้เห็นก่อนกดบันทึกว่าใกล้เต็มขีดจำกัดหรือยัง แทนที่จะรู้ตัวตอนกดบันทึกแล้วเจอ error เท่านั้น
-function updateImageSizeIndicator() {
-    const indicator = document.getElementById('image-size-indicator');
-    const bar = document.getElementById('image-size-bar');
-    const label = document.getElementById('image-size-label');
-    if (!indicator || !bar || !label) return;
-
-    const totalImages = currentImages.form.length + currentImages.before.length + currentImages.after.length;
-    if (totalImages === 0) {
-        indicator.classList.add('hidden');
-        return;
-    }
-    indicator.classList.remove('hidden');
-
-    const approxItem = buildItemFromForm(document.getElementById('entry-id').value, true);
-    const approxSize = new Blob([JSON.stringify(approxItem)]).size;
-    const percent = Math.min(100, (approxSize / FIRESTORE_DOC_SIZE_BUDGET) * 100);
-    const kb = Math.round(approxSize / 1024);
-    const budgetKb = Math.round(FIRESTORE_DOC_SIZE_BUDGET / 1024);
-
-    label.textContent = `ขนาดข้อมูลรูปภาพโดยประมาณ: ${kb} KB / ${budgetKb} KB`;
-    bar.style.width = `${percent}%`;
-
-    if (percent >= 100) {
-        bar.className = 'h-full rounded-full bg-red-500 transition-all';
-        label.className = 'text-xs font-bold text-red-600';
-    } else if (percent >= 80) {
-        bar.className = 'h-full rounded-full bg-yellow-500 transition-all';
-        label.className = 'text-xs font-bold text-yellow-600';
-    } else {
-        bar.className = 'h-full rounded-full bg-emerald-500 transition-all';
-        label.className = 'text-xs font-semibold text-gray-500';
-    }
-}
-
-// ย่อขนาดรูปภาพและแปลงเป็น JPEG คุณภาพที่กำหนด เพื่อให้ไฟล์เล็กพอที่จะเก็บใน Firestore ได้
-function compressImage(file, maxWidth, quality) {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = (evt) => {
-            const img = new Image();
-            img.onload = () => {
-                let { width, height } = img;
-                if (width > maxWidth) {
-                    height = Math.round(height * (maxWidth / width));
-                    width = maxWidth;
-                }
-                const canvas = document.createElement('canvas');
-                canvas.width = width;
-                canvas.height = height;
-                canvas.getContext('2d').drawImage(img, 0, 0, width, height);
-                resolve(canvas.toDataURL('image/jpeg', quality));
-            };
-            img.onerror = () => reject(new Error('โหลดรูปภาพไม่สำเร็จ'));
-            img.src = evt.target.result;
-        };
-        reader.onerror = () => reject(new Error('อ่านไฟล์ไม่สำเร็จ'));
-        reader.readAsDataURL(file);
-    });
-}
-
-const IMAGE_GRID_IDS = { form: 'preview-form-grid', before: 'preview-before-grid', after: 'preview-after-grid' };
-
-// ลบรูปภาพรายรูปออกจากหัวขัดที่ระบุ (form / before / after) ตามตำแหน่ง index
-function removeImageAt(type, idx) {
-    currentImages[type].splice(idx, 1);
-    renderPreviewGrid(type, IMAGE_GRID_IDS[type]);
-}
-
-function resetForm() {
-    document.getElementById('complaint-form').reset();
-    document.getElementById('entry-id').value = '';
-    
-    // reset UI state
-    document.getElementById('sub-department-container').classList.add('hidden');
-    document.getElementById('f-subDepartment').removeAttribute('required');
-
-    // Reset planning division complaint topic container (shown only for ฝ่ายแผน)
-    document.getElementById('planning-topic-container').classList.add('hidden');
-    document.getElementById('f-planningTopic').removeAttribute('required');
-
-    // Reset other work notes container (shown when "อื่น ๆ" is selected)
-    document.getElementById('other-work-notes-container').classList.add('hidden');
-    document.getElementById('f-otherWorkNotes').removeAttribute('required');
-
-    document.getElementById('f-status').value = 'ยังไม่เริ่ม';
-    document.getElementById('note-container').classList.remove('hidden');
-    document.getElementById('finished-container').classList.add('hidden');
-    document.getElementById('f-completedDate').removeAttribute('required');
-    document.getElementById('f-status').dispatchEvent(new Event('change'));
-
-    currentImages = { form: [], before: [], after: [] };
-    renderPreviewGrid('form', 'preview-form-grid');
-    renderPreviewGrid('before', 'preview-before-grid');
-    renderPreviewGrid('after', 'preview-after-grid');
-    document.getElementById('f-formFile').value = '';
-    document.getElementById('f-beforeFile').value = '';
-    document.getElementById('f-afterFile').value = '';
-
-    // Set default date to today
-    const today = new Date().toISOString().split('T')[0];
-    document.getElementById('f-startDate').value = today;
-}
-
-function populateForm(item) {
-    document.getElementById('entry-id').value = item.id;
-    document.getElementById('f-title').value = item.title;
-    document.getElementById('f-receiveNo').value = item.receiveNo;
-    document.getElementById('f-requester').value = item.requester;
-    document.getElementById('f-supervisor').value = item.supervisor;
-    
-    const dept = document.getElementById('f-department');
-    dept.value = item.department;
-    // Trigger change so the sub-department (งานโยธา) or planning topic (ฝ่ายแผน) section shows as needed
-    dept.dispatchEvent(new Event('change'));
-    
-    if(item.subDepartment) document.getElementById('f-subDepartment').value = item.subDepartment;
-
-    if(item.planningTopic) document.getElementById('f-planningTopic').value = item.planningTopic;
-
-    if(item.otherWorkNotes) document.getElementById('f-otherWorkNotes').value = item.otherWorkNotes;
-
-    document.getElementById('f-zone').value = item.zone;
-    document.getElementById('f-startDate').value = item.startDate;
-    document.getElementById('f-contactType').value = item.contactType;
-    document.getElementById('f-contactInfo').value = item.contactInfo;
-    
-    const stat = document.getElementById('f-status');
-    stat.value = item.status;
-    stat.dispatchEvent(new Event('change'));
-
-    if (item.note) document.getElementById('f-note').value = item.note;
-    if (item.completedDate) document.getElementById('f-completedDate').value = item.completedDate;
-
-    currentImages.form = normalizeImgArray(item.formImgs);
-    currentImages.before = normalizeImgArray(item.beforeImgs, item.beforeImg);
-    currentImages.after = normalizeImgArray(item.afterImgs, item.afterImg);
-    renderPreviewGrid('form', 'preview-form-grid');
-    renderPreviewGrid('before', 'preview-before-grid');
-    renderPreviewGrid('after', 'preview-after-grid');
-}
-
-// อ่านค่าทั้งหมดจากฟอร์มปัจจุบันมาประกอบเป็น object คำร้อง — ใช้ร่วมกันทั้งตอนบันทึกจริงและตอนคำนวณมิเตอร์ขนาดข้อมูล
-function buildItemFromForm(id, isNew) {
-    return {
-        id: isNew ? Date.now() : parseInt(id),
-        title: document.getElementById('f-title').value,
-        receiveNo: document.getElementById('f-receiveNo').value,
-        requester: document.getElementById('f-requester').value,
-        supervisor: document.getElementById('f-supervisor').value,
-        department: document.getElementById('f-department').value,
-        subDepartment: document.getElementById('f-subDepartment').value,
-        planningTopic: document.getElementById('f-planningTopic').value,
-        otherWorkNotes: document.getElementById('f-otherWorkNotes').value,
-        zone: document.getElementById('f-zone').value,
-        startDate: document.getElementById('f-startDate').value,
-        contactType: document.getElementById('f-contactType').value,
-        contactInfo: document.getElementById('f-contactInfo').value,
-        status: document.getElementById('f-status').value,
-        note: document.getElementById('f-note').value,
-        completedDate: document.getElementById('f-completedDate').value,
-        formImgs: currentImages.form,
-        beforeImgs: currentImages.before,
-        afterImgs: currentImages.after,
+photoUploadBox.addEventListener('drop', (e) => {
+  e.preventDefault();
+  photoUploadBox.style.background = '';
+  const files = e.dataTransfer.files;
+  if (files.length > 0) {
+    photoInput.files = files;
+    handlePhotoSelect();
+  }
+});
+
+photoInput.addEventListener('change', handlePhotoSelect);
+
+function handlePhotoSelect() {
+  const file = photoInput.files[0];
+  if (!file) return;
+
+  if (file.size > 5 * 1024 * 1024) {
+    alert('ไฟล์ใหญ่เกินไป (สูงสุด 5MB)');
+    photoInput.value = '';
+    return;
+  }
+
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const maxW = 600;
+      const scale = Math.min(1, maxW / img.width);
+      canvas.width = Math.round(img.width * scale);
+      canvas.height = Math.round(img.height * scale);
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      pendingPhoto = canvas.toDataURL('image/jpeg', 0.75);
+      pendingPhotoFile = file;
+      displayPhotoPreview();
     };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
 }
 
-function saveForm(e) {
-    e.preventDefault();
+function displayPhotoPreview() {
+  previewImg.src = pendingPhoto;
+  previewName.textContent = pendingPhotoFile.name;
+  photoPreview.classList.add('show');
+}
 
-    const id = document.getElementById('entry-id').value;
-    const isNew = !id;
-    const newItem = buildItemFromForm(id, isNew);
+removePhotoBtn.addEventListener('click', (e) => {
+  e.preventDefault();
+  pendingPhoto = null;
+  pendingPhotoFile = null;
+  photoInput.value = '';
+  photoPreview.classList.remove('show');
+});
 
-    // ตรวจสอบขนาดข้อมูลคร่าวๆ ก่อนบันทึก (Firestore จำกัดไว้ที่ 1MB ต่อรายการ)
-    const approxSize = new Blob([JSON.stringify(newItem)]).size;
-    if (approxSize > FIRESTORE_DOC_SIZE_BUDGET) {
-        const kb = Math.round(approxSize / 1024);
-        const budgetKb = Math.round(FIRESTORE_DOC_SIZE_BUDGET / 1024);
-        showToast(`ข้อมูล (รวมรูปภาพ) มีขนาดใหญ่เกินไป (~${kb} KB จากขีดจำกัด ${budgetKb} KB) กรุณาลบรูปภาพบางส่วนออก หรือใช้รูปภาพที่เล็กลง`, 'error');
-        return;
+// ============ Form Submit ============
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const title = titleInput.value.trim();
+  if (!title) return;
+
+  const entryData = {
+    title: title,
+    desc: descInput.value.trim(),
+    photo: pendingPhoto,
+    sent: false,
+    sentDate: null,
+    returned: false,
+    returnedDate: null,
+    createdAt: Date.now()
+  };
+
+  submitBtn.disabled = true;
+  submitBtn.textContent = 'กำลังบันทึก...';
+
+  const ok = await addEntry(entryData);
+
+  submitBtn.disabled = false;
+  submitBtn.textContent = 'บันทึกแฟ้มใหม่';
+
+  if (!ok) return;
+
+  // Reset form
+  titleInput.value = '';
+  descInput.value = '';
+  pendingPhoto = null;
+  pendingPhotoFile = null;
+  photoInput.value = '';
+  photoPreview.classList.remove('show');
+  currentPage = 1;
+
+  // Switch to dashboard
+  switchPage('dashboard-page');
+  navBtns.forEach(b => b.classList.remove('active'));
+  navBtns[0].classList.add('active');
+});
+
+// ============ Status Toggle ============
+function toggleStatusWithDatePicker(id, type) {
+  const entry = state.entries.find(x => x.id === id);
+  if (!entry) return;
+
+  const isPending = editingDateFor && editingDateFor.id === id && editingDateFor.type === type;
+
+  // ถ้า already checked แล้ว (บันทึกแล้วจริง) ให้ uncheck
+  if (type === 'sent' && entry.sent) {
+    updateEntry(id, { sent: false, sentDate: null, returned: false, returnedDate: null });
+    editingDateFor = null;
+    render();
+    return;
+  } else if (type === 'returned' && entry.returned) {
+    updateEntry(id, { returned: false, returnedDate: null });
+    editingDateFor = null;
+    render();
+    return;
+  }
+
+  // ถ้าติ๊กค้างรอกรอกวันที่อยู่ (ยังไม่กดบันทึก) แล้วกดซ้ำ ให้ยกเลิกการติ๊ก
+  if (isPending) {
+    editingDateFor = null;
+    render();
+    return;
+  }
+
+  // ยังไม่ติ๊ก -> เปิดช่องกรอกวันที่ ยังไม่ถือว่าสำเร็จจนกว่าจะเลือกวันที่แล้วกด "บันทึก"
+  if (type === 'returned' && !entry.sent) return; // ต้องส่งขึ้นไปก่อนถึงจะรับลงมาได้
+
+  editingDateFor = { id, type };
+  render();
+
+  setTimeout(() => {
+    const datePicker = fileList.querySelector(`[data-entry-id="${id}"][data-type="${type}"] .date-input`);
+    if (datePicker) {
+      datePicker.focus();
+      if (datePicker.showPicker) {
+        try { datePicker.showPicker(); } catch (e) {}
+      }
     }
-
-    db.collection('complaints').doc(String(newItem.id)).set(newItem)
-        .then(() => {
-            showToast(isNew ? 'บันทึกคำร้องใหม่สำเร็จ' : 'อัปเดตข้อมูลสำเร็จ');
-            navigate('dashboard');
-        })
-        .catch((err) => {
-            console.error('Save error:', err);
-            showToast('บันทึกข้อมูลไม่สำเร็จ กรุณาลองใหม่', 'error');
-        });
+  }, 0);
 }
 
-function deleteItem(id) {
-    openConfirmModal('คุณแน่ใจหรือไม่ที่จะลบคำร้องนี้? ข้อมูลจะไม่สามารถกู้คืนได้', () => {
-        db.collection('complaints').doc(String(id)).delete()
-            .then(() => {
-                closeDetailModal();
-                showToast('ลบคำร้องเรียบร้อยแล้ว');
-            })
-            .catch((err) => {
-                console.error('Delete error:', err);
-                showToast('ลบข้อมูลไม่สำเร็จ กรุณาลองใหม่', 'error');
-            });
-    });
+function saveDateForEntry(id, type) {
+  const entry = state.entries.find(x => x.id === id);
+  if (!entry) return;
+
+  const picker = fileList.querySelector(`[data-entry-id="${id}"][data-type="${type}"]`);
+  const input = picker ? picker.querySelector('.date-input') : null;
+  if (!input || !input.value) return;
+
+  const patch = type === 'sent'
+    ? { sent: true, sentDate: input.value }
+    : { returned: true, returnedDate: input.value };
+
+  updateEntry(id, patch);
+  editingDateFor = null;
+  render();
 }
+
+function cancelDateEdit() {
+  editingDateFor = null;
+  render();
+}
+
+function deleteEntry(id) {
+  if (confirm('ลบแฟ้มนี้?')) {
+    removeEntry(id);
+  }
+}
+
+// ============ Rendering ============
+function rebuildSeqMap() {
+  seqMap = new Map();
+  const asc = [...state.entries].sort((a, b) => a.createdAt - b.createdAt);
+  asc.forEach((e, idx) => seqMap.set(e.id, idx + 1));
+}
+
+function render() {
+  rebuildSeqMap();
+
+  const total = state.entries.length;
+  const pending = state.entries.filter(e => e.sent && !e.returned).length;
+  const done = state.entries.filter(e => e.sent && e.returned).length;
+
+  statTotal.textContent = total;
+  statPending.textContent = pending;
+  statDone.textContent = done;
+  countAll.textContent = total;
+  countPending.textContent = pending;
+  countDone.textContent = done;
+
+  filterTabs.forEach(tab => {
+    tab.classList.toggle('active', tab.dataset.filter === currentFilter);
+  });
+
+  const filtered = applyFilter(state.entries);
+
+  if (filtered.length === 0) {
+    fileList.innerHTML = '';
+    pagination.innerHTML = '';
+    emptyState.classList.remove('hidden');
+    if (total === 0) {
+      emptyTitle.textContent = 'ยังไม่มีแฟ้มในระบบ';
+      emptyText.textContent = 'กดปุ่ม "เพิ่มแฟ้มใหม่" เพื่อเริ่มติดตามแฟ้มเอกสารของคุณ';
+    } else if (searchQuery) {
+      emptyTitle.textContent = 'ไม่พบแฟ้มที่ค้นหา';
+      emptyText.textContent = 'ลองค้นหาด้วยคำอื่น หรือล้างคำค้นหา';
+    } else {
+      emptyTitle.textContent = 'ไม่มีแฟ้มในหมวดนี้';
+      emptyText.textContent = 'ลองเลือกแท็บอื่นเพื่อดูแฟ้มทั้งหมด';
+    }
+    return;
+  }
+
+  emptyState.classList.add('hidden');
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  if (currentPage > totalPages) currentPage = totalPages;
+  if (currentPage < 1) currentPage = 1;
+
+  const pageItems = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+  fileList.innerHTML = pageItems.map(entry => createFileCard(entry)).join('');
+
+  renderPagination(totalPages);
+}
+
+function renderPagination(totalPages) {
+  if (totalPages <= 1) {
+    pagination.innerHTML = '';
+    return;
+  }
+
+  let html = `<button class="page-btn" data-page="prev" ${currentPage === 1 ? 'disabled' : ''} aria-label="ก่อนหน้า">‹</button>`;
+
+  getPageNumbers(currentPage, totalPages).forEach(p => {
+    if (p === '...') {
+      html += `<span class="page-ellipsis">…</span>`;
+    } else {
+      html += `<button class="page-btn ${p === currentPage ? 'active' : ''}" data-page="${p}">${p}</button>`;
+    }
+  });
+
+  html += `<button class="page-btn" data-page="next" ${currentPage === totalPages ? 'disabled' : ''} aria-label="ถัดไป">›</button>`;
+
+  pagination.innerHTML = html;
+}
+
+function getPageNumbers(current, total) {
+  const delta = 1;
+  const range = [];
+  const withDots = [];
+  let last;
+
+  for (let i = 1; i <= total; i++) {
+    if (i === 1 || i === total || (i >= current - delta && i <= current + delta)) {
+      range.push(i);
+    }
+  }
+
+  range.forEach(i => {
+    if (last !== undefined) {
+      if (i - last === 2) withDots.push(last + 1);
+      else if (i - last !== 1) withDots.push('...');
+    }
+    withDots.push(i);
+    last = i;
+  });
+
+  return withDots;
+}
+
+function applyFilter(entries) {
+  let result = entries;
+  if (currentFilter === 'pending') result = result.filter(e => e.sent && !e.returned);
+  else if (currentFilter === 'done') result = result.filter(e => e.sent && e.returned);
+
+  if (searchQuery) {
+    result = result.filter(e => entrySearchText(e).includes(searchQuery));
+  }
+
+  return result;
+}
+
+// รวมข้อความสำหรับค้นหา: ชื่อเรื่อง, รายละเอียด, และวันที่ (สร้าง/ส่งขึ้น/รับลงมา)
+// ในหลายรูปแบบ (ไทยเต็ม, ไทยย่อ, ตัวเลข วัน/เดือน/ปี) เพื่อให้ค้นด้วยวัน เดือน หรือปีได้
+function entrySearchText(entry) {
+  const parts = [entry.title, entry.desc || ''];
+
+  parts.push(dateSearchTokens(new Date(entry.createdAt)));
+  if (entry.sentDate) parts.push(dateSearchTokens(isoToDateObj(entry.sentDate)));
+  if (entry.returnedDate) parts.push(dateSearchTokens(isoToDateObj(entry.returnedDate)));
+
+  return parts.join(' ').toLowerCase();
+}
+
+function isoToDateObj(isoStr) {
+  const [year, month, day] = isoStr.split('-');
+  return new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+}
+
+function dateSearchTokens(d) {
+  const day = String(d.getDate()).padStart(2, '0');
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const year = d.getFullYear();
+  const buddhistYear = year + 543;
+  const thaiLong = d.toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' });
+  const thaiShort = d.toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' });
+
+  return [
+    thaiLong, thaiShort,
+    `${day}/${month}/${year}`,
+    `${day}-${month}-${year}`,
+    `${year}-${month}-${day}`,
+    String(year), String(buddhistYear)
+  ].join(' ');
+}
+
+function createFileCard(entry) {
+  const photoHtml = entry.photo
+    ? `<img class="file-photo" src="${entry.photo}" alt="รูป: ${escapeHtml(entry.title)}" data-full="${entry.photo}" />`
+    : `<div class="file-photo placeholder">📄</div>`;
+
+  const todayStr = new Date().toISOString().split('T')[0];
+
+  const showSentDatePicker = editingDateFor && editingDateFor.id === entry.id && editingDateFor.type === 'sent';
+  const showReturnedDatePicker = editingDateFor && editingDateFor.id === entry.id && editingDateFor.type === 'returned';
+
+  // ติ๊กถูกให้ขึ้นทันทีตอนเปิดช่องกรอกวันที่ (ก่อนกดบันทึกจริง) เพื่อให้เห็นว่าเลือกแล้ว
+  const sentCheckSvg = (entry.sent || showSentDatePicker) ? CHECK_SVG : '';
+  const returnedCheckSvg = (entry.returned || showReturnedDatePicker) ? CHECK_SVG : '';
+
+  const sentDateValue = entry.sent && entry.sentDate ? entry.sentDate : todayStr;
+  const returnedDateValue = entry.returned && entry.returnedDate ? entry.returnedDate : todayStr;
+
+  const sentDateDisplay = entry.sent && entry.sentDate ? isoToThaiDate(entry.sentDate) : '';
+  const returnedDateDisplay = entry.returned && entry.returnedDate ? isoToThaiDate(entry.returnedDate) : '';
+
+  return `
+    <div class="file-card">
+      <div style="display: flex; gap: 14px;">
+        ${photoHtml}
+        <div class="file-header" style="margin: 0; gap: 0;">
+          <div class="file-title-section">
+            <p class="file-title">${escapeHtml(entry.title)}</p>
+            <p class="file-meta">${formatDateTime(entry.createdAt)}</p>
+            ${entry.desc ? `<p class="file-meta">${escapeHtml(entry.desc)}</p>` : ''}
+          </div>
+          <div class="file-code">#${docCode(entry)}</div>
+        </div>
+      </div>
+
+      <div class="file-status">
+        <div style="flex: 1;">
+          <button class="status-item" data-action="toggle-sent" data-id="${entry.id}" style="background: none; border: none; padding: 0; cursor: pointer; text-align: left; width: 100%;">
+            <div class="status-checkbox ${(entry.sent || showSentDatePicker) ? 'checked' : ''}">${sentCheckSvg}</div>
+            <div>
+              <div class="status-label">ส่งขึ้นไปแล้ว</div>
+              ${sentDateDisplay ? `<div class="status-date">${sentDateDisplay}</div>` : ''}
+              ${showSentDatePicker && !entry.sent ? `<div class="status-date">เลือกวันที่แล้วกดบันทึก</div>` : ''}
+            </div>
+          </button>
+          ${(entry.sent || showSentDatePicker) ? `
+            <div class="date-picker-inline ${showSentDatePicker ? 'show' : ''}" data-entry-id="${entry.id}" data-type="sent" style="margin-top: 8px;">
+              <input type="date" class="date-input" value="${sentDateValue}" max="${todayStr}" />
+              <button class="date-save-btn" data-action="save-date" data-id="${entry.id}" data-type="sent">บันทึก</button>
+              <button class="date-cancel-btn" data-action="cancel-date" data-id="${entry.id}" data-type="sent">ยกเลิก</button>
+            </div>
+          ` : ''}
+        </div>
+
+        <div class="status-divider"></div>
+
+        <div style="flex: 1;">
+          <button class="status-item" data-action="toggle-returned" data-id="${entry.id}" ${!entry.sent ? 'style="opacity: 0.5; pointer-events: none; background: none; border: none; padding: 0; cursor: not-allowed; text-align: left; width: 100%;"' : 'style="background: none; border: none; padding: 0; cursor: pointer; text-align: left; width: 100%;"'}>
+            <div class="status-checkbox ${(entry.returned || showReturnedDatePicker) ? 'checked' : ''}">${returnedCheckSvg}</div>
+            <div>
+              <div class="status-label">รับลงมาแล้ว</div>
+              ${returnedDateDisplay ? `<div class="status-date">${returnedDateDisplay}</div>` : ''}
+              ${showReturnedDatePicker && !entry.returned ? `<div class="status-date">เลือกวันที่แล้วกดบันทึก</div>` : ''}
+            </div>
+          </button>
+          ${(entry.returned || showReturnedDatePicker) ? `
+            <div class="date-picker-inline ${showReturnedDatePicker ? 'show' : ''}" data-entry-id="${entry.id}" data-type="returned" style="margin-top: 8px;">
+              <input type="date" class="date-input" value="${returnedDateValue}" max="${todayStr}" />
+              <button class="date-save-btn" data-action="save-date" data-id="${entry.id}" data-type="returned">บันทึก</button>
+              <button class="date-cancel-btn" data-action="cancel-date" data-id="${entry.id}" data-type="returned">ยกเลิก</button>
+            </div>
+          ` : ''}
+        </div>
+
+        <div class="file-actions">
+          <button class="delete-btn" data-action="delete" data-id="${entry.id}">ลบ</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function docCode(entry) {
+  const seq = seqMap.get(entry.id) || 0;
+  return String(seq).padStart(4, '0');
+}
+
+function formatDateTime(ts) {
+  const d = new Date(ts);
+  return d.toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' }) +
+         ' ' + d.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+}
+
+function isoToThaiDate(isoStr) {
+  if (!isoStr) return '';
+  const [year, month, day] = isoStr.split('-');
+  const d = new Date(year, parseInt(month) - 1, day);
+  return d.toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+// ============ Event Delegation ============
+fileList.addEventListener('click', (e) => {
+  const img = e.target.closest('.file-photo[data-full]');
+  if (img) {
+    lightboxImg.src = img.dataset.full;
+    lightbox.classList.add('open');
+    return;
+  }
+
+  const btn = e.target.closest('[data-action]');
+  if (!btn) return;
+
+  const action = btn.dataset.action;
+  const id = btn.dataset.id;
+  const type = btn.dataset.type;
+
+  if (action === 'toggle-sent') {
+    toggleStatusWithDatePicker(id, 'sent');
+  } else if (action === 'toggle-returned') {
+    toggleStatusWithDatePicker(id, 'returned');
+  } else if (action === 'save-date') {
+    saveDateForEntry(id, type);
+  } else if (action === 'cancel-date') {
+    cancelDateEdit();
+  } else if (action === 'delete') {
+    deleteEntry(id);
+  }
+});
+
+lightboxClose.addEventListener('click', () => lightbox.classList.remove('open'));
+lightbox.addEventListener('click', (e) => {
+  if (e.target === lightbox) lightbox.classList.remove('open');
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') lightbox.classList.remove('open');
+});
+
+// Filter tabs
+filterTabs.forEach(tab => {
+  tab.addEventListener('click', () => {
+    currentFilter = tab.dataset.filter;
+    currentPage = 1;
+    render();
+  });
+});
+
+// Search bar
+searchInput.addEventListener('input', () => {
+  searchQuery = searchInput.value.trim().toLowerCase();
+  searchClearBtn.classList.toggle('show', searchQuery.length > 0);
+  currentPage = 1;
+  render();
+});
+
+searchClearBtn.addEventListener('click', () => {
+  searchInput.value = '';
+  searchQuery = '';
+  searchClearBtn.classList.remove('show');
+  currentPage = 1;
+  render();
+  searchInput.focus();
+});
+
+// Pagination
+pagination.addEventListener('click', (e) => {
+  const btn = e.target.closest('.page-btn');
+  if (!btn || btn.disabled) return;
+  const p = btn.dataset.page;
+  if (p === 'prev') currentPage -= 1;
+  else if (p === 'next') currentPage += 1;
+  else currentPage = parseInt(p, 10);
+  render();
+});
+
+// Initial render (data populates once Firestore's onSnapshot fires)
+render();
