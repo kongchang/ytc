@@ -520,8 +520,20 @@ function renderDashboard() {
         return;
     }
 
-    // Sort newest first
-    filtered.sort((a,b) => new Date(b.startDate) - new Date(a.startDate));
+    // เรียงตามเลขรับ (รูปแบบ "เลข/ปี" เช่น "125/2569") จากน้อยไปมาก
+    const parseReceiveNo = (no) => {
+        if (!no) return [0, 0];
+        const parts = String(no).split('/');
+        const num = parseInt(parts[0], 10) || 0;
+        const year = parts[1] ? (parseInt(parts[1], 10) || 0) : 0;
+        return [year, num];
+    };
+    filtered.sort((a, b) => {
+        const [aYear, aNum] = parseReceiveNo(a.receiveNo);
+        const [bYear, bNum] = parseReceiveNo(b.receiveNo);
+        if (aYear !== bYear) return aYear - bYear;
+        return aNum - bNum;
+    });
 
     // แบ่งหน้า (Pagination)
     const totalPages = Math.max(1, Math.ceil(filtered.length / ITEMS_PER_PAGE));
